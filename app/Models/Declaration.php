@@ -2,20 +2,27 @@
 
 namespace App\Models;
 
+use Dom\Document;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class Declaration extends Model
 {
+    
+    use HasFactory;
     //
     protected $fillable=[
+                   // 1. Protection des données financières (restrict au lieu de cascade)
         "company_id",
         "bank_id",
         "reference",
+        "mobile_reference",
         "period",
         "amount",
-        "payment_mode",
-        "status",
-        
+        "payment_mode", 
+        "proof_path",
+        "status", 
+        "comment_reject", 
     ];
 
     public function company(){
@@ -24,8 +31,8 @@ class Declaration extends Model
     public function bank(){
         return $this->belongsTo(Bank::class,"bank_id");
     }
-    public function document(){
-        
+    public function documents(){
+        return $this->hasMany(Document::class);
     }
 
 }

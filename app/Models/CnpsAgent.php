@@ -2,16 +2,18 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class CnpsAgents extends Model
+class CnpsAgent extends Model
 {
+    use HasFactory;
     //
     protected $fillable = [
         "user_id",
         "matricule",
-        "fullname",
-        "departement"
+        "full_name",
+        "department"
     ];
     
     public function user(){
