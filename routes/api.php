@@ -28,7 +28,10 @@ Route::middleware("auth:sanctum")->group(function(){
     Route::middleware("role:cnps")->prefix("cnps")->group(function(){
         // Lister toutes les déclarations (avec filtres et pagination)
         Route::get('/declarations', [CnpsController::class, 'index']);
+        // ... vos routes CNPS existantes ...
         
+        // Exporter le rapport PDF
+        Route::get('/reports/declarations/pdf', [CnpsController::class, 'exportPdf']);
         // Récupérer les données pour les graphiques du Dashboard
         Route::get('/statistics', [CnpsController::class, 'statistics']);
         

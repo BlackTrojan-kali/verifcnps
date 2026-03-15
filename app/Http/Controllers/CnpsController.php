@@ -7,6 +7,7 @@ use App\Models\CnpsAgent;
 use App\Models\Declaration;
 use App\Models\User;
 use App\Notifications\DeclarationStatusUpdated;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 
@@ -225,6 +226,51 @@ class CnpsController extends Controller
         $agents = CnpsAgent::with('user')->orderBy('fullname', 'asc')->get();
 
         return response()->json($agents);
+    }
+
+    public function exportPdf(Request $request)
+    {
+        $query = Declaration::with(['company', 'bank']);
+
+        // --- MÊMES FILTRES QUE LA FONCTION INDEX ---
+        $query->when($request->filled('status'), function ($q) use ($request) {
+            $q->where('status', $request->status);
+        });
+
+        $query->when($request->filled('bank_id'), function ($q) use ($request) {
+            $q->where('bank_id', $request->bank_id);
+        });
+
+        $query->when($request->filled('payment_mode'), function ($q) use ($request) {
+            $q->where('payment_mode', $request->payment_mode);
+        });
+
+        $query->when($request->filled('start_date') && $request->filled('end_date'), function ($q) use ($request) {
+            $q->whereBetween('created_at', [
+                $request->start_date . ' 00:00:00', 
+                $request->end_date . ' 23:59:59'
+            ]);
+        });
+        // ------------------------------------------
+
+        // On utilise get() et non paginate() car on veut TOUTES les données filtrées dans le PDF
+        $declarations = $query->orderBy('created_at', 'desc')->get();
+
+        // On calcule des totaux pour rendre le rapport professionnel
+        $totalAmount = $declarations->sum('amount');
+        $totalCount = $declarations->count();
+        $dateGeneration = now()->format('d/m/Y à H:i');
+// On charge la vue Blade avec les données
+        $pdf = Pdf::loadView('reports.declarations_pdf', compact(
+            'declarations', 
+            'totalAmount', 
+            'totalCount',
+            'dateGeneration',
+            'request'
+        ))->setPaper('a4', 'landscape'); // <-- L'AJOUT EST ICI : Mode Paysage
+
+        // On renvoie le fichier PDF généré
+        return $pdf->download('Reporting_CNPS_' . date('Y-m-d') . '.pdf');
     }
 
 }
