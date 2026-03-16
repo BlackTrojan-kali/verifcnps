@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\BankController;
 use App\Http\Controllers\CnpsController;
 use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\DeclarationController;
@@ -32,7 +33,10 @@ Route::middleware("auth:sanctum")->group(function(){
     
     });
     Route::middleware("role:bank")->prefix("bank")->group(function(){
-
+        Route::get('/declarations', [BankController::class, 'index']);
+    Route::get('/declarations/{id}', [BankController::class, 'show']);
+    Route::put('/declarations/{id}/validate', [BankController::class, 'validatePayment']);
+    Route::put('/declarations/{id}/reject', [BankController::class, 'rejectPayment']);
     });
     Route::middleware("role:cnps")->prefix("cnps")->group(function(){
         // Lister toutes les déclarations (avec filtres et pagination)

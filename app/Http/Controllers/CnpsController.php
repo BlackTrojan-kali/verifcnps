@@ -8,7 +8,9 @@ use App\Models\Declaration;
 use App\Models\User;
 use App\Notifications\DeclarationStatusUpdated;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
 class CnpsController extends Controller
@@ -116,24 +118,104 @@ class CnpsController extends Controller
     /**
      * 4. REPORTING (Bonus) : Fournir les données pour les graphiques React
      */
-    public function statistics(Request $request)
+  public function statistics(Request $request)
     {
-        // Total des montants validés par la CNPS
-        $totalEncaisse = Declaration::where('status', 'cnps_validated')->sum('amount');
-        
-        // Nombre de déclarations en attente
-        $enAttente = Declaration::whereIn('status', ['submited', 'bank_validated'])->count();
+        // 1. Initialisation de la requête de base
+        $query = Declaration::query();
 
-        // Répartition des paiements par mode (pour un graphique en camembert)
-        $repartitionModes = Declaration::selectRaw('payment_mode, COUNT(*) as count, SUM(amount) as total')
+        // 2. Application du filtre de date (Si l'utilisateur a choisi une période)
+        if ($request->filled(['start_date', 'end_date'])) {
+            $start = Carbon ::parse($request->start_date)->startOfDay();
+            $end = Carbon::parse($request->end_date)->endOfDay();
+            $query->whereBetween('created_at', [$start, $end]);
+        }
+
+        // ==========================================
+        // CALCUL DES KPIs (Cartes du haut)
+        // ==========================================
+        
+        // Total collecté (Uniquement ce qui est définitivement validé par la CNPS)
+        $totalCollected = (clone $query)->where('status', 'cnps_validated')->sum('amount');
+        
+        // Nombre de rejets
+        $rejectedCount = (clone $query)->where('status', 'rejected')->count();
+
+        // Taux de rapprochement : (Nombre Rapprochés / Nombre total validé par la banque) * 100
+        $reconciledCount = (clone $query)->where('status', 'cnps_validated')->count();
+        $totalToReconcile = (clone $query)->whereIn('status', ['bank_validated', 'cnps_validated'])->count();
+        
+        $reconciliationRate = 0;
+        if ($totalToReconcile > 0) {
+            $reconciliationRate = round(($reconciledCount / $totalToReconcile) * 100, 1);
+        }
+
+        // ==========================================
+        // GRAPHIQUE BARRES : Encaissements par Banque
+        // ==========================================
+        
+        $bankData = (clone $query)
+            ->whereNotNull('bank_id')
+            ->where('status', 'cnps_validated') // On ne compte que l'argent réellement encaissé
+            ->select('bank_id', DB::raw('SUM(amount) as total_amount'))
+            ->groupBy('bank_id')
+            ->with('bank:id,bank_name') // On joint la table banque pour récupérer le nom
+            ->get()
+            ->map(function ($item) {
+                return [
+                    'name' => $item->bank ? $item->bank->bank_name : 'Inconnu',
+                    'amount' => (float) $item->total_amount // Cast en float pour Recharts
+                ];
+            })
+            // On trie par montant décroissant pour que le graphique soit beau (du + grand au + petit)
+            ->sortByDesc('amount')
+            ->values();
+
+        // ==========================================
+        // GRAPHIQUE CAMEMBERT : Modes de paiement
+        // ==========================================
+        
+        $modes = (clone $query)
             ->whereNotNull('payment_mode')
+            ->select('payment_mode', DB::raw('COUNT(*) as count'))
             ->groupBy('payment_mode')
             ->get();
 
+        $totalModes = $modes->sum('count');
+
+        // On assigne une couleur précise à chaque mode pour coller au design
+        $colorMap = [
+            'virement'       => '#10B981', // Vert émeraude
+            'mobile_money'   => '#1E40AF', // Bleu foncé
+            'orange_money'   => '#F97316', // Orange
+            'especes'        => '#64748B', // Gris
+            'ordre_virement' => '#8B5CF6'  // Violet
+        ];
+
+        $paymentModeData = $modes->map(function ($item) use ($totalModes, $colorMap) {
+            // On calcule le pourcentage que représente ce mode de paiement
+            $percentage = $totalModes > 0 ? round(($item->count / $totalModes) * 100, 1) : 0;
+            
+            // On formate le nom (ex: "mobile_money" devient "Mobile money")
+            $formattedName = ucfirst(str_replace('_', ' ', $item->payment_mode));
+
+            return [
+                'name' => $formattedName,
+                'value' => $percentage,
+                'color' => $colorMap[$item->payment_mode] ?? '#CBD5E1' // Gris clair par défaut
+            ];
+        })->values();
+
+        // ==========================================
+        // RÉPONSE AU FORMAT ATTENDU PAR REACT
+        // ==========================================
         return response()->json([
-            'total_encaisse' => $totalEncaisse,
-            'declarations_en_attente' => $enAttente,
-            'repartition_modes' => $repartitionModes,
+            'kpis' => [
+                'totalCollected' => (float) $totalCollected,
+                'reconciliationRate' => $reconciliationRate,
+                'rejectedCount' => $rejectedCount,
+            ],
+            'bankChartData' => $bankData,
+            'paymentModeData' => $paymentModeData
         ]);
     }
 
@@ -145,7 +227,7 @@ class CnpsController extends Controller
         $request->validate([
             'email' => 'required|email|unique:users,email',
             'password' => 'required|string|min:6',
-            'bank_code' => 'required|string|unique:banks,code_banque',
+            'bank_code' => 'required|string|unique:banks,bank_code',
             'bank_name' => 'required|string',
         ]);
 
@@ -217,7 +299,7 @@ class CnpsController extends Controller
      */
     public function listCnpsAgents()
     {
-        $agents = CnpsAgent::with('user')->orderBy('fullname', 'asc')->get();
+        $agents = CnpsAgent::with('user')->orderBy('full_name', 'asc')->get();
 
         return response()->json($agents);
     }

@@ -20,6 +20,7 @@ return new class extends Migration
             $table->foreignId("bank_id")->nullable()->constrained()->onDelete("restrict");
             
             $table->string("reference")->unique();
+            $table->string("order_reference")->unique()->nullable();
             $table->string("mobile_reference")->nullable();
             $table->date("period");
             $table->decimal("amount", 15, 2);
