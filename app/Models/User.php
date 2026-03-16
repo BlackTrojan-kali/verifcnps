@@ -52,7 +52,7 @@ class User extends Authenticatable
         return $this->hasOne(Bank::class);
     }
     public function company(){
-        return $this->hansOne(Company::class);
+        return $this->hasOne(Company::class);
     }
     public function cnps(){
         return $this->hasOne(CnpsAgent::class);

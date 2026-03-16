@@ -48,22 +48,23 @@ class CompanyController extends Controller
     }
     
     public function InitiateDeclaration(Request $request){
+        
         $request->validate([
             "bank_id"=>"required",
             "reference"=>"string | required",
             "mobile_reference"=>"string | nullable",
-            "period"=>"required| date",
+            "period"=>"required",
             "proof_pdf"=>"nullable | file:pdf | max:5096",
-            "amount"=>"numeric ",
+            "amount"=>"required ",
             "payment_mode"=> "string | required",
-            "status"=>"string |required",
+            "status"=>"string | nullable",
         ]);
 
         $company=  Auth::user()->company();
         $date  = Carbon::today();
         $path = $request->file("proof_pdf")->store("proofs","public");
         Declaration::create([
-            "company_id" =>$request->company_id,
+            "company_id" =>Auth::user()->company->id,
             "bank_id"=>$request->bank_id,
             "reference"=>$request->reference,
             "mobile_reference"=>$request->mobile_reference,
@@ -78,14 +79,40 @@ class CompanyController extends Controller
             "message"=>"paiement initié"
         ]);
     }
-    public function EditDeclaration(Request $request){
+public function EditDeclaration(Request $request, $id)
+    {
         $request->validate([
-         "bank_id"=>$request->bank_id,
-        "reference"=>$request->reference,
-        "mobile_reference"=>$request->mobile_reference,
-        "amount"=>$request->amount,
-        "payment_mode"=>$request->payment_mode, 
-        "proof_path"=>"nullable | file:pdf| max:5096",
+            "bank_id" => "required|integer|exists:banks,id",
+            "reference" => "required|string",
+            "mobile_reference" => "nullable|string",
+            "amount" => "required|numeric",
+            "payment_mode" => "required|string", 
+            "proof_pdf" => "nullable|file|mimes:pdf|max:5096",
+        ]);
+
+        $company = Auth::user()->company;
+        
+        $declaration = Declaration::where('id', $id)->where('company_id', $company->id)->firstOrFail();
+
+         if ($request->hasFile('proof_pdf')) {
+            if ($declaration->proof_path) {
+                \Illuminate\Support\Facades\Storage::disk('public')->delete($declaration->proof_path);
+            }
+            
+            $declaration->proof_path = $request->file("proof_pdf")->store("proofs", "public");
+        }
+
+        $declaration->update([
+            "bank_id" => $request->bank_id,
+            "reference" => $request->reference,
+            "mobile_reference" => $request->mobile_reference,
+            "amount" => $request->amount,
+            "payment_mode" => $request->payment_mode,
+       ]);
+
+        return response()->json([
+            "message" => "Déclaration mise à jour avec succès",
+            "declaration" => $declaration
         ]);
     }
     public function changeDeclarationStatus(Request $request,$id){

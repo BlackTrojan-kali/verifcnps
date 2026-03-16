@@ -53,7 +53,7 @@ class NiuService
         $cleanNiu = $this->sanitize($niu);
         
         if (strlen($cleanNiu) < 14) {
-            return $cleanNiu; // Trop court pour être masqué proprement
+            return $cleanNiu; 
         }
 
         return substr($cleanNiu, 0, 6) . '****' . substr($cleanNiu, -4);

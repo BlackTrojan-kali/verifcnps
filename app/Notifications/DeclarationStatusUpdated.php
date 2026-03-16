@@ -51,6 +51,7 @@ class DeclarationStatusUpdated extends Notification
      */
     public function toArray(object $notifiable): array
     {
+        
         return [
             //
             "declaration_id"=>$this->declaration->id,

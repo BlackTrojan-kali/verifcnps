@@ -57,7 +57,6 @@ class CnpsController extends Controller
             ]);
         });
 
-        // On utilise paginate(50) au lieu de get() car la CNPS aura des milliers de lignes
         $declarations = $query->orderBy('updated_at', 'desc')->paginate(50);
 
         return response()->json($declarations);
@@ -70,16 +69,14 @@ class CnpsController extends Controller
     {
         $declaration = Declaration::findOrFail($id);
 
-        // On passe au statut final (défini dans votre migration comme 'cnps_validated')
         $declaration->update([
             'status' => 'cnps_validated'
         ]);
 
-        // Notification à l'entreprise : "C'est bon, vous êtes en règle !"
         $declaration->company->user->notify(new DeclarationStatusUpdated(
-            $declaration, 
-            "Félicitations, votre paiement (Réf: {$declaration->reference}) a été définitivement rapproché par la CNPS."
-        ));
+         "Félicitations, votre paiement (Réf: {$declaration->reference}) a été définitivement rapproché par la CNPS.",    
+        $declaration
+           ));
 
         return response()->json([
             'message' => 'Paiement rapproché avec succès.',
@@ -93,7 +90,7 @@ class CnpsController extends Controller
     public function rejectPayment(Request $request, $id)
     {
         $request->validate([
-            'comment_reject' => 'required|string|min:5' // Le motif est obligatoire pour un rejet
+            'comment_reject' => 'required|string|min:5' 
         ]);
 
         $declaration = Declaration::findOrFail($id);
@@ -105,8 +102,9 @@ class CnpsController extends Controller
 
         // Notification d'alerte à l'entreprise
         $declaration->company->user->notify(new DeclarationStatusUpdated(
-            $declaration, 
             "ATTENTION : Votre déclaration ({$declaration->reference}) a été rejetée. Motif : {$request->comment_reject}"
+        ,  
+        $declaration, 
         ));
 
         return response()->json([
@@ -154,7 +152,7 @@ class CnpsController extends Controller
         // 1. Création de l'utilisateur de connexion
         $user = User::create([
             'email' => $request->email,
-            'password' => Hash::make($request->password), // Toujours crypter le mot de passe !
+            'password' => Hash::make($request->password), 
             'role' => 'bank'
         ]);
 
@@ -167,16 +165,12 @@ class CnpsController extends Controller
 
         return response()->json([
             'message' => 'Compte bancaire créé avec succès.',
-            'bank' => $bank->load('user') // On renvoie la banque avec son email attaché
+            'bank' => $bank->load('user') 
         ], 201);
     }
 
-    /**
-     * 6. Lister toutes les banques partenaires
-     */
     public function listBanks()
     {
-        // On récupère les banques en incluant leurs informations de connexion (User)
         $banks = Bank::with('user')->orderBy('bank_name', 'asc')->get();
 
         return response()->json($banks);
@@ -196,7 +190,7 @@ class CnpsController extends Controller
         $request->validate([
             'email' => 'required|email|unique:users,email',
             'password' => 'required|string|min:6',
-            'matricule' => 'required|string|unique:cnps,matricule', // Adaptez le nom de la table si besoin
+            'matricule' => 'required|string|unique:cnps,matricule', 
             'full_name' => 'required|string',
         ]);
 
@@ -253,7 +247,6 @@ class CnpsController extends Controller
         });
         // ------------------------------------------
 
-        // On utilise get() et non paginate() car on veut TOUTES les données filtrées dans le PDF
         $declarations = $query->orderBy('created_at', 'desc')->get();
 
         // On calcule des totaux pour rendre le rapport professionnel
@@ -261,15 +254,14 @@ class CnpsController extends Controller
         $totalCount = $declarations->count();
         $dateGeneration = now()->format('d/m/Y à H:i');
 // On charge la vue Blade avec les données
-        $pdf = Pdf::loadView('reports.declarations_pdf', compact(
+        $pdf = Pdf::loadView('declarations_pdf', compact(
             'declarations', 
             'totalAmount', 
             'totalCount',
             'dateGeneration',
             'request'
-        ))->setPaper('a4', 'landscape'); // <-- L'AJOUT EST ICI : Mode Paysage
+        ))->setPaper('a4', 'landscape'); 
 
-        // On renvoie le fichier PDF généré
         return $pdf->download('Reporting_CNPS_' . date('Y-m-d') . '.pdf');
     }
 

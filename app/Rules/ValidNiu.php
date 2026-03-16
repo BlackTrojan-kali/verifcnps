@@ -23,7 +23,6 @@ class ValidNiu implements ValidationRule
      */
     public function validate(string $attribute, mixed $value, Closure $fail): void
     {
-        // On utilise notre service pour vérifier la validité
         if (! $this->niuService->isValid($value)) {
             $fail('Le format du :attribute est invalide. Il doit commencer par M ou P, suivi de 12 chiffres et se terminer par une lettre.');
         }

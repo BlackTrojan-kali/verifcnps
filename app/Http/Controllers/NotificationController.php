@@ -22,7 +22,7 @@ class NotificationController extends Controller
         return response()->json(["message"=>"notification read"],201);
     }
     public function markAllAsRead(){
-        Auth::user()->unreadNotifications->markAllAsRead();
+        Auth::user()->unreadNotifications->markAsRead;
         return response()->json(["message"=>"all notifications as been read"]);
     }
 }

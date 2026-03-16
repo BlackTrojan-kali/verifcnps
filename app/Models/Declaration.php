@@ -12,7 +12,6 @@ class Declaration extends Model
     use HasFactory;
     //
     protected $fillable=[
-                   // 1. Protection des données financières (restrict au lieu de cascade)
         "company_id",
         "bank_id",
         "reference",

@@ -21,21 +21,12 @@ Route::middleware("auth:sanctum")->group(function(){
             Route::post("/mark-all-as-read",[NotificationController::class,"MarkAllAsRead"]);
     });
     Route::middleware("role:company")->prefix("company")->group(function(){
-       // 1. Lister et filtrer les déclarations (GET)
-        // Endpoint: GET /api/company/declarations
         Route::get('/declarations', [CompanyController::class, 'index']);
         
-        // 2. Initier une nouvelle déclaration (POST)
-        // Endpoint: POST /api/company/declarations
         Route::post('/declarations', [CompanyController::class, 'InitiateDeclaration']);
         
-        // 3. Modifier une déclaration existante
-        // Endpoint: POST /api/company/declarations/{id}
-        // Note: On utilise POST plutôt que PUT car il y a potentiellement un fichier (proof_pdf) à uploader, ce qui est mieux géré par POST en multipart/form-data.
-        Route::post('/declarations/{id}', [CompanyController::class, 'EditDeclaration']);
+       Route::post('/declarations/{id}', [CompanyController::class, 'EditDeclaration']);
         
-        // 4. Changer le statut d'une déclaration (PATCH)
-        // Endpoint: PATCH /api/company/declarations/{id}/status
         Route::patch('/declarations/{id}/status', [CompanyController::class, 'changeDeclarationStatus']);
         
     

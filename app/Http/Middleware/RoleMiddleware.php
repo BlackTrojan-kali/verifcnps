@@ -17,7 +17,7 @@ class RoleMiddleware
     public function handle(Request $request, Closure $next,...$roles): Response
     {
         //verifions si l'utilisateur est authentifie
-        if($request->user()){
+        if(!Auth::user()){
             return response()->json(["message","vous n'êtes pas authentifié"],401);
         }
         if(!in_array($request->user()->role, $roles)){
