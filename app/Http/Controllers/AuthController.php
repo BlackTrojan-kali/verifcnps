@@ -47,42 +47,55 @@ class AuthController extends Controller
         
     }
 
-    public function loginCompany(Request $request){
+   public function loginCompany(Request $request)
+    {
+        
+        // On peut même utiliser notre règle ValidNiu ici !
         $request->validate([
-            "niu"=>"string",
-            "name"=>"string|nullable",
+            "niu" => ["required", "string"], // Ajoutez new \App\Rules\ValidNiu() si vous le souhaitez
+            "name" => "string|nullable",
         ]);
 
-        $company  =  Company::where("niu",$request->nui)->first();
-        if(!$company){
-            $user = User::create([
-                "role"=>"company",
-            ]);
-            
-           $company =  Company::create([
-                "user_id"=>$user->id,
-                "niu"=>$request->niu,
-                "raison_sociale"=>$request->name ?? "a definir"
-            ]);
-            
-        }
-        dd($user->load("cnps"));
+        // 1. Correction de la faute de frappe (niu au lieu de nui)
+        $company = Company::where("niu", $request->niu)->first();
         
-        $token = Auth::createToken("verif_cnps_token")->plainTextToken();
+        // 2. Gestion correcte de la variable $user
+        if (!$company) {
+            // L'entreprise n'existe pas, on la crée
+            $user = User::create([
+                "role" => "company",
+                // Note: Si votre table users exige un mot de passe ou un email, 
+                // vous devrez générer des valeurs par défaut ici.
+            ]);
+            
+            $company = Company::create([
+                "user_id" => $user->id,
+                "niu" => $request->niu,
+                "raison_sociale" => $request->name ?? "À définir"
+            ]);
+        
+        // 3. On charge la bonne relation (company, et non cnps)
+        $user->load("company");
+        
+            } else {
+            // L'entreprise existe, on DOIT récupérer l'utilisateur qui lui est lié !
+            $user = $company->user; 
+        }
+        
+        // 4. Correction de la génération du token Sanctum
+        $token = $user->createToken("verif_cnps_token")->plainTextToken;
         
         return response()->json([
-            "message"=>"authentification reussie",
-            "token"=>$token,
-            "token_type"=>"Bearer",
-            "user"=>$user,
+            "message" => "Authentification réussie",
+            "access_token" => $token, // Nommé access_token pour correspondre à notre code React !
+            "token_type" => "Bearer",
+            "user" => $user,
         ]);
-
     }
-
-    public function  me($id){
-        $user =  User::findOrFail($id);
+      public function  me(){
+        $user =  Auth::user();
         if($user->role === "company"){
-            $user->load("company");
+        
         }
         if($user->role === "bank"){
             $user->load("bank");
@@ -92,6 +105,7 @@ class AuthController extends Controller
         }
         return response()->json($user);
     }
+    
     public function logout(Request $request){
             Auth::user()->currentAccessToken()->delete;
             return response()->json([
