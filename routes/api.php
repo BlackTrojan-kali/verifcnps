@@ -22,6 +22,8 @@ Route::middleware("auth:sanctum")->group(function(){
             Route::post("/mark-all-as-read",[NotificationController::class,"MarkAllAsRead"]);
     });
     Route::middleware("role:company")->prefix("company")->group(function(){
+        
+        Route::get('/banks', [CnpsController::class, 'listBanks']);
         Route::get('/declarations', [CompanyController::class, 'index']);
         
         Route::post('/declarations', [CompanyController::class, 'InitiateDeclaration']);

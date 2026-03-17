@@ -44,8 +44,9 @@ class BankController extends Controller
         }
 
         // On exclut le statut "initiated" car la banque ne doit voir que ce qui lui a été soumis ("submited" et plus)
-        $query->where('status', '!=', 'initiated');
-
+        //$query->where('status', '!=', 'initiated');
+        $query->whereNotIn("payment_mode",['mobile_money', "orange_money"]);
+        $query->whereNotIn('status', ['initiated', 'cnps_validated']);
         $declarations = $query->orderBy('created_at', 'desc')->paginate(25);
 
         return response()->json($declarations);

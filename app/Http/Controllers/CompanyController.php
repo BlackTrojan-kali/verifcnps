@@ -12,7 +12,7 @@ class CompanyController extends Controller
     //
     public function index(Request $request){
         $company = Auth::user()->company;
-
+    
         $query = Declaration::where("company_id",$company->id);
 
         $query->when($request->filled("bank_id"),function($q) use($request){
@@ -47,37 +47,41 @@ class CompanyController extends Controller
 
     }
     
-    public function InitiateDeclaration(Request $request){
-        
+   public function InitiateDeclaration(Request $request){
         $request->validate([
             "bank_id"=>"required",
-            "reference"=>"string | required",
-            "mobile_reference"=>"string | nullable",
+            "reference"=>"string|required",
+            "mobile_reference"=>"string|nullable",
             "period"=>"required",
-            "proof_pdf"=>"nullable | file:pdf | max:5096",
-            "amount"=>"required ",
-            "payment_mode"=> "string | required",
-            "status"=>"string | nullable",
+            "proof_pdf"=>"nullable|file|mimes:pdf|max:5096", // mimes:pdf est plus sûr
+            "amount"=>"required",
+            "payment_mode"=> "string|required",
+            "status"=>"string|nullable",
         ]);
 
-        $company=  Auth::user()->company();
-        $date  = Carbon::today();
-        $path = $request->file("proof_pdf")->store("proofs","public");
+        $company = Auth::user()->company; // Correction ici (pas de parenthèses)
+        $date = Carbon::today();
+        
+        $path = null;
+        // Correction ici : on vérifie que le fichier existe avant de le stocker
+        if ($request->hasFile("proof_pdf")) {
+            $path = $request->file("proof_pdf")->store("proofs","public");
+        }
+
         Declaration::create([
-            "company_id" =>Auth::user()->company->id,
-            "bank_id"=>$request->bank_id,
-            "reference"=>$request->reference,
-            "mobile_reference"=>$request->mobile_reference,
-            "period"=>$date,
-            "amount"=>$request->amount,
-            "payment_mode"=>$request->payment_mode, 
-            "proof_path"=>$path,
-            "status"=>"initiated",
+            "company_id" => $company->id,
+            "bank_id" => $request->bank_id,
+            "reference" => $request->reference,
+            "mobile_reference" => $request->mobile_reference,
+            "period" => $date,
+            "amount" => $request->amount,
+            "payment_mode" => $request->payment_mode, 
+            "proof_path" => $path,
+            // Correction : on prend le statut envoyé par React ('submited'), sinon 'initiated'
+            "status" => $request->status ?? "initiated", 
         ]);
 
-        return response()->json([
-            "message"=>"paiement initié"
-        ]);
+        return response()->json(["message" => "Paiement initié avec succès"]);
     }
 public function EditDeclaration(Request $request, $id)
     {
