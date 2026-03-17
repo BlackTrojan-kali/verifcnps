@@ -31,14 +31,21 @@ Route::middleware("auth:sanctum")->group(function(){
        Route::post('/declarations/{id}', [CompanyController::class, 'EditDeclaration']);
         
         Route::patch('/declarations/{id}/status', [CompanyController::class, 'changeDeclarationStatus']);
-        
+            
     
     });
     Route::middleware("role:bank")->prefix("bank")->group(function(){
-        Route::get('/declarations', [BankController::class, 'index']);
+    Route::get('/declarations', [BankController::class, 'index']);
     Route::get('/declarations/{id}', [BankController::class, 'show']);
     Route::put('/declarations/{id}/validate', [BankController::class, 'validatePayment']);
     Route::put('/declarations/{id}/reject', [BankController::class, 'rejectPayment']);
+    
+        // Gestion des dépôts au guichet
+        Route::post('/counter-deposits', [BankController::class, 'storeCounterDeposit']);
+        Route::post('/counter-deposits/{id}', [BankController::class, 'updateCounterDeposit']); // POST avec _method=PUT pour le FormData
+        
+        // Recherche d'entreprise au guichet
+        Route::get('/companies/search', [BankController::class, 'searchCompanyByNiu']);
     });
     Route::middleware("role:cnps")->prefix("cnps")->group(function(){
         // Lister toutes les déclarations (avec filtres et pagination)

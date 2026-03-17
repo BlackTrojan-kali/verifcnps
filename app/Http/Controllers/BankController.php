@@ -2,10 +2,15 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Company;
 use App\Models\Declaration;
+use App\Models\User; // <-- IMPORT INDISPENSABLE
+use App\Notifications\DeclarationStatusUpdated; // <-- IMPORT DE VOTRE NOTIFICATION
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Notification; // <-- IMPORT POUR L'ENVOI EN MASSE
+use Illuminate\Support\Facades\Storage;
 
 class BankController extends Controller
 {
@@ -16,10 +21,8 @@ class BankController extends Controller
     {
         $bank = Auth::user()->bank;
         
-        // On charge la relation "company" pour afficher le nom de l'entreprise côté front
         $query = Declaration::with('company')->where("bank_id", $bank->id);
 
-        // --- Filtres ---
         $query->when($request->filled("reference"), function($q) use ($request) {
             $q->where("reference", "like", "%" . $request->reference . "%");
         });
@@ -36,17 +39,15 @@ class BankController extends Controller
             $q->where("period", $request->period);
         });
 
-        // Filtre par plage de dates
         if ($request->filled('start_date') && $request->filled('end_date')) {
             $start = Carbon::parse($request->start_date)->startOfDay();
             $end = Carbon::parse($request->end_date)->endOfDay();
             $query->whereBetween('created_at', [$start, $end]);
         }
 
-        // On exclut le statut "initiated" car la banque ne doit voir que ce qui lui a été soumis ("submited" et plus)
-        //$query->where('status', '!=', 'initiated');
-        $query->whereNotIn("payment_mode",['mobile_money', "orange_money"]);
+        $query->whereNotIn("payment_mode", ['mobile_money', "orange_money"]);
         $query->whereNotIn('status', ['initiated', 'cnps_validated']);
+        
         $declarations = $query->orderBy('created_at', 'desc')->paginate(25);
 
         return response()->json($declarations);
@@ -71,25 +72,20 @@ class BankController extends Controller
         $bank = Auth::user()->bank;
         $declaration = Declaration::where('bank_id', $bank->id)->findOrFail($id);
 
-        // Sécurité : On ne valide que ce qui est "soumis"
         if ($declaration->status !== 'submited') {
             return response()->json(['message' => 'Cette déclaration a déjà été traitée.'], 403);
         }
 
-        // --- Logique de validation dynamique ---
-        // La première référence est toujours obligatoire
         $rules = [
             'reference' => 'required|string|unique:declarations,reference,' . $declaration->id,
         ];
 
-        // Règle métier : Si c'est un Ordre de Virement, on exige la 2ème référence
         if ($declaration->payment_mode === 'ordre_virement') {
             $rules['order_reference'] = 'required|string|unique:declarations,order_reference,' . $declaration->id;
         }
 
         $request->validate($rules);
 
-        // --- Mise à jour ---
         $declaration->reference = $request->reference;
         
         if ($declaration->payment_mode === 'ordre_virement') {
@@ -99,6 +95,26 @@ class BankController extends Controller
         $declaration->status = 'bank_validated';
         $declaration->save();
 
+        // ========================================================
+        // ENVOI DE LA NOTIFICATION À LA CNPS (ET À L'ENTREPRISE)
+        // ========================================================
+        
+        // 1. Alerter tous les agents CNPS
+        $cnpsAgents = User::where('role', 'cnps')->get();
+        Notification::send($cnpsAgents, new DeclarationStatusUpdated(
+            "La banque a transféré un paiement de " . number_format($declaration->amount, 0, ',', ' ') . " FCFA.", 
+            $declaration
+        ));
+
+        // 2. (Optionnel mais recommandé) Alerter l'entreprise que son paiement a passé l'étape banque
+        $declaration->load('company.user');
+        if ($declaration->company && $declaration->company->user) {
+            $declaration->company->user->notify(new DeclarationStatusUpdated(
+                "Votre dépôt a été validé par la banque et transmis à la CNPS.", 
+                $declaration
+            ));
+        }
+
         return response()->json([
             'message' => 'Paiement validé et transmis à la CNPS avec succès.',
             'declaration' => $declaration
@@ -106,7 +122,7 @@ class BankController extends Controller
     }
 
     /**
-     * 4. Rejeter le paiement (Fonds introuvables, chèque sans provision, etc.)
+     * 4. Rejeter le paiement
      */
     public function rejectPayment(Request $request, $id)
     {
@@ -117,7 +133,6 @@ class BankController extends Controller
             return response()->json(['message' => 'Cette déclaration a déjà été traitée.'], 403);
         }
 
-        // Un motif de rejet est obligatoire pour informer l'entreprise
         $request->validate([
             'comment_reject' => 'required|string|min:5'
         ]);
@@ -126,9 +141,134 @@ class BankController extends Controller
         $declaration->comment_reject = $request->comment_reject;
         $declaration->save();
 
+        // ========================================================
+        // ENVOI DE LA NOTIFICATION DE REJET À L'ENTREPRISE
+        // ========================================================
+        $declaration->load('company.user');
+        if ($declaration->company && $declaration->company->user) {
+            $declaration->company->user->notify(new DeclarationStatusUpdated(
+                "Votre dépôt a été rejeté par la banque. Motif : " . $request->comment_reject, 
+                $declaration
+            ));
+        }
+
         return response()->json([
             'message' => 'Le paiement a été rejeté.',
             'declaration' => $declaration
         ]);
+    }
+
+    /**
+     * 5. Créer un dépôt au guichet (Espèces ou Ordre de Virement)
+     */
+    public function storeCounterDeposit(Request $request)
+    {
+        $bank = Auth::user()->bank;
+
+        $request->validate([
+            'company_id' => 'required|exists:companies,id',
+            'reference' => 'required|string|unique:declarations,reference',
+            'payment_mode' => 'required|in:especes,ordre_virement', 
+            'order_reference' => 'required_if:payment_mode,ordre_virement|nullable|string|unique:declarations,order_reference',
+            'period' => 'required|date',
+            'amount' => 'required|numeric|min:1',
+            'proof_pdf' => 'nullable|file|mimes:pdf|max:5096', 
+        ]);
+
+        $path = null;
+        if ($request->hasFile("proof_pdf")) {
+            $path = $request->file("proof_pdf")->store("proofs", "public");
+        }
+
+        $declaration = Declaration::create([
+            'company_id' => $request->company_id,
+            'bank_id' => $bank->id, 
+            'reference' => $request->reference,
+            'order_reference' => $request->payment_mode === 'ordre_virement' ? $request->order_reference : null,
+            'period' => Carbon::parse($request->period),
+            'amount' => $request->amount,
+            'payment_mode' => $request->payment_mode,
+            'proof_path' => $path,
+            'status' => 'bank_validated', // Validé par défaut
+        ]);
+
+        // ========================================================
+        // ENVOI DE LA NOTIFICATION À LA CNPS POUR LE DÉPÔT GUICHET
+        // ========================================================
+        $cnpsAgents = User::where('role', 'cnps')->get();
+        Notification::send($cnpsAgents, new DeclarationStatusUpdated(
+            "Un nouveau dépôt au guichet de " . number_format($declaration->amount, 0, ',', ' ') . " FCFA a été enregistré.", 
+            $declaration
+        ));
+
+        return response()->json([
+            'message' => 'Dépôt au guichet enregistré avec succès.',
+            'declaration' => $declaration->load('company')
+        ], 201);
+    }
+
+    /**
+     * 6. Modifier un dépôt au guichet
+     */
+    public function updateCounterDeposit(Request $request, $id)
+    {
+        $bank = Auth::user()->bank;
+        
+        $declaration = Declaration::where('bank_id', $bank->id)
+            ->whereIn('payment_mode', ['especes', 'ordre_virement'])
+            ->findOrFail($id);
+
+        if ($declaration->status === 'cnps_validated') {
+            return response()->json([
+                'message' => 'Impossible de modifier une transaction déjà clôturée par la CNPS.'
+            ], 403);
+        }
+
+        $request->validate([
+            'company_id' => 'required|exists:companies,id',
+            'reference' => 'required|string|unique:declarations,reference,' . $declaration->id,
+            'payment_mode' => 'required|in:especes,ordre_virement',
+            'order_reference' => 'required_if:payment_mode,ordre_virement|nullable|string|unique:declarations,order_reference,' . $declaration->id,
+            'period' => 'required|date',
+            'amount' => 'required|numeric|min:1',
+            'proof_pdf' => 'nullable|file|mimes:pdf|max:5096',
+        ]);
+
+        if ($request->hasFile('proof_pdf')) {
+            if ($declaration->proof_path) {
+                Storage::disk('public')->delete($declaration->proof_path);
+            }
+            $declaration->proof_path = $request->file("proof_pdf")->store("proofs", "public");
+        }
+
+        $declaration->update([
+            'company_id' => $request->company_id,
+            'reference' => $request->reference,
+            'order_reference' => $request->payment_mode === 'ordre_virement' ? $request->order_reference : null,
+            'period' => Carbon::parse($request->period),
+            'amount' => $request->amount,
+            'payment_mode' => $request->payment_mode,
+        ]);
+
+        return response()->json([
+            'message' => 'Le dépôt a été modifié avec succès.',
+            'declaration' => $declaration->load('company')
+        ]);
+    }
+
+    /**
+     * 7. Rechercher une entreprise par NIU
+     */
+    public function searchCompanyByNiu(Request $request)
+    {
+        $request->validate(['niu' => 'required|string']);
+        
+        $company = Company::where('niu', $request->niu)->first();
+        
+        if (!$company) {
+            return response()->json(['message' => 'Aucune entreprise trouvée avec ce NIU.'], 404);
+        }
+        
+        return response()->json(['company' => $company]);
     }
 }
