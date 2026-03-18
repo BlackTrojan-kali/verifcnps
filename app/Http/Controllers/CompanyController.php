@@ -200,4 +200,37 @@ class CompanyController extends Controller
             "message" => "Statut mis à jour avec succès"
         ]);
     }
+ 
+    
+    /**
+     * Endpoint général pour télécharger la quittance officielle de la CNPS (PDF)
+     */
+    public function downloadReceipt($id)
+    {
+        $user = Auth::user();
+        $declaration = Declaration::find($id);
+
+        if (!$declaration) {
+            return response()->json(['message' => 'Cotisation introuvable.'], 404);
+        }
+
+        // --- SÉCURITÉ ---
+        if ($user->role === 'company' && $declaration->company_id !== $user->company->id) {
+            return response()->json(['message' => 'Accès non autorisé à ce document.'], 403);
+        }
+
+        // --- VÉRIFICATION DU FICHIER DE QUITTANCE ---
+        if (empty($declaration->receipt_path)) {
+            return response()->json(['message' => 'La quittance officielle n\'a pas encore été générée par la CNPS pour cette déclaration.'], 404);
+        }
+
+        if (!Storage::disk('public')->exists($declaration->receipt_path)) {
+            return response()->json(['message' => 'Le fichier physique de la quittance est introuvable sur le serveur.'], 404);
+        }
+
+        // --- TÉLÉCHARGEMENT ---
+        $fileName = 'Quittance_CNPS_' . $declaration->reference . '.pdf';
+
+        return Storage::disk('public')->download($declaration->receipt_path, $fileName);
+    }
 }

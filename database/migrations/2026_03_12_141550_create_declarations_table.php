@@ -28,8 +28,13 @@ return new class extends Migration
             // 3. Rendu nullable car l'API CNPS l'ignore au moment de l'initialisation
             $table->enum("payment_mode", ['virement', 'especes', 'ordre_virement', 'mobile_money', "orange_money"])->nullable();
             
-            // 4. L'AJOUT CRITIQUE : Le chemin du fichier PDF uploadé
+            // 4. L'AJOUT CRITIQUE : Le chemin du fichier PDF uploadé par l'entreprise/banque (Preuve)
             $table->string("proof_path")->nullable();
+
+            // ==========================================
+            // NOUVEAU : La quittance délivrée par la CNPS
+            // ==========================================
+            $table->string("receipt_path")->nullable();
             
             // 5. Ajout de l'état initial ('initiated') et de la valeur par défaut
             $table->enum("status", ["initiated", "submited", "bank_validated", "cnps_validated", "rejected"])->default("initiated"); 

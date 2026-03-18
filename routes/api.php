@@ -21,20 +21,24 @@ Route::middleware("auth:sanctum")->group(function(){
             Route::put("/mark-as-read/{id}",[NotificationController::class,"MarkAsRead"]);
             Route::post("/mark-all-as-read",[NotificationController::class,"MarkAllAsRead"]);
     });
+    // ROUTE GLOBALE POUR LE TÉLÉCHARGEMENT DU PDF
+    Route::get('/declarations/{id}', [DeclarationController::class, 'show']);
+    Route::get('/declarations/{id}/download-proof', [DeclarationController::class, 'downloadProof']);
     Route::middleware("role:company")->prefix("company")->group(function(){
         
         Route::get('/banks', [CnpsController::class, 'listBanks']);
         Route::get('/declarations', [CompanyController::class, 'index']);
-        
+        Route::get('/declarations/{id}/download-receipt', [CompanyController::class, 'downloadReceipt']);    
         Route::post('/declarations', [CompanyController::class, 'InitiateDeclaration']);
         
-       Route::post('/declarations/{id}', [CompanyController::class, 'EditDeclaration']);
+       Route::put('/declarations/{id}', [CompanyController::class, 'EditDeclaration']);
         
         Route::patch('/declarations/{id}/status', [CompanyController::class, 'changeDeclarationStatus']);
             
     
     });
     Route::middleware("role:bank")->prefix("bank")->group(function(){
+    Route::get('/dashboard-stats', [BankController::class, 'dashboardStats']);
     Route::get('/declarations', [BankController::class, 'index']);
     Route::get('/declarations/{id}', [BankController::class, 'show']);
     Route::put('/declarations/{id}/validate', [BankController::class, 'validatePayment']);
@@ -48,6 +52,7 @@ Route::middleware("auth:sanctum")->group(function(){
         Route::get('/companies/search', [BankController::class, 'searchCompanyByNiu']);
     });
     Route::middleware("role:cnps")->prefix("cnps")->group(function(){
+        Route::post('/declarations/{id}/receipt', [CnpsController::class, 'uploadReceipt']);
         // Lister toutes les déclarations (avec filtres et pagination)
         Route::get('/declarations', [CnpsController::class, 'index']);
         // ... vos routes CNPS existantes ...

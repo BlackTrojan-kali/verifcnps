@@ -12,6 +12,7 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 
 class CnpsController extends Controller
 {
@@ -347,4 +348,52 @@ class CnpsController extends Controller
         return $pdf->download('Reporting_CNPS_' . date('Y-m-d') . '.pdf');
     }
 
+    /**
+     * Uploader la quittance officielle (Après le rapprochement)
+     */
+    public function uploadReceipt(Request $request, $id)
+    {
+        $declaration = Declaration::findOrFail($id);
+
+        // SÉCURITÉ : On ne peut uploader une quittance que si le paiement a été rapproché
+        if ($declaration->status !== 'cnps_validated') {
+            return response()->json([
+                'message' => 'Le paiement doit d\'abord être rapproché avant d\'y associer une quittance.'
+            ], 403);
+        }
+
+        // VALIDATION : Le fichier PDF est obligatoire
+        $request->validate([
+            'receipt_pdf' => 'required|file|mimes:pdf|max:5096'
+        ], [
+            'receipt_pdf.required' => 'Veuillez joindre la quittance au format PDF.',
+            'receipt_pdf.mimes' => 'Le fichier doit être un PDF.'
+        ]);
+
+        // Suppression de l'ancienne quittance si elle existait déjà (en cas de correction)
+        if ($request->hasFile('receipt_pdf')) {
+            if ($declaration->receipt_path) {
+                Storage::disk('public')->delete($declaration->receipt_path);
+            }
+            // Enregistrement dans un dossier spécifique "receipts"
+            $declaration->receipt_path = $request->file('receipt_pdf')->store('receipts', 'public');
+            $declaration->save();
+        }
+
+        // ========================================================
+        // NOTIFICATION À L'ENTREPRISE
+        // ========================================================
+        $declaration->load('company.user');
+        if ($declaration->company && $declaration->company->user) {
+            $declaration->company->user->notify(new \App\Notifications\DeclarationStatusUpdated(
+                "Votre quittance officielle est maintenant disponible au téléchargement.", 
+                $declaration
+            ));
+        }
+
+        return response()->json([
+            'message' => 'Quittance uploadée et transmise à l\'entreprise avec succès.',
+            'declaration' => $declaration
+        ]);
+    }
 }

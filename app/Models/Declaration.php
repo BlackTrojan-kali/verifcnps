@@ -22,6 +22,7 @@ class Declaration extends Model
         "proof_path",
         "status", 
         "comment_reject", 
+        "receipt_path"
     ];
 
     public function company(){

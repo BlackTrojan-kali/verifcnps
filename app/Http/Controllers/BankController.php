@@ -9,11 +9,108 @@ use App\Notifications\DeclarationStatusUpdated; // <-- IMPORT DE VOTRE NOTIFICAT
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification; // <-- IMPORT POUR L'ENVOI EN MASSE
 use Illuminate\Support\Facades\Storage;
 
 class BankController extends Controller
 {
+    /**
+     * Statistiques pour le Dashboard de la Banque
+     */
+    public function dashboardStats(Request $request)
+    {
+        $user = Auth::user();
+        
+        // Sécurité : On s'assure que l'utilisateur a bien une banque rattachée
+        if (!$user->bank) {
+            return response()->json(['message' => 'Aucune banque rattachée à cet utilisateur.'], 403);
+        }
+
+        $bankId = $user->bank->id;
+
+        // 1. Initialisation de la requête restreinte à CETTE banque uniquement
+        $query = Declaration::where('bank_id', $bankId);
+
+        // 2. Filtre de dates (Optionnel)
+        if ($request->filled(['start_date', 'end_date'])) {
+            $start = Carbon::parse($request->start_date)->startOfDay();
+            $end = Carbon::parse($request->end_date)->endOfDay();
+            $query->whereBetween('created_at', [$start, $end]);
+        }
+
+        // ==========================================
+        // CALCUL DES KPIs (Cartes du haut)
+        // ==========================================
+        
+        // En attente d'action par le guichetier (à valider ou rejeter)
+        $pendingCount = (clone $query)->where('status', 'submited')->count();
+        
+        // Dossiers traités et validés par la banque (ou déjà rapprochés par CNPS)
+        $validatedCount = (clone $query)->whereIn('status', ['bank_validated', 'cnps_validated'])->count();
+        
+        // Dossiers rejetés par la banque
+        $rejectedCount = (clone $query)->where('status', 'rejected')->count();
+        
+        // Total de l'argent collecté via cette banque (uniquement les montants validés)
+        $totalCollected = (clone $query)->whereIn('status', ['bank_validated', 'cnps_validated'])->sum('amount');
+
+        // ==========================================
+        // GRAPHIQUE CAMEMBERT : Modes de paiement
+        // ==========================================
+        $modes = (clone $query)
+            ->select('payment_mode', DB::raw('COUNT(*) as count'))
+            ->groupBy('payment_mode')
+            ->get();
+
+        $colorMap = [
+            'virement'       => '#10B981', // Vert
+            'especes'        => '#F59E0B', // Jaune/Orange (Saisie guichet)
+            'ordre_virement' => '#8B5CF6'  // Violet (Saisie guichet)
+        ];
+
+        $paymentModeData = $modes->map(function ($item) use ($colorMap) {
+            $formattedName = ucfirst(str_replace('_', ' ', $item->payment_mode));
+            return [
+                'name' => $formattedName,
+                'value' => (int) $item->count,
+                'color' => $colorMap[$item->payment_mode] ?? '#94A3B8'
+            ];
+        })->values();
+
+        // ==========================================
+        // GRAPHIQUE ÉVOLUTION : Encaissements sur les 7 derniers jours
+        // ==========================================
+        $trendData = (clone $query)
+            ->whereIn('status', ['bank_validated', 'cnps_validated'])
+            ->where('created_at', '>=', Carbon::now()->subDays(7))
+            ->select(DB::raw('DATE(created_at) as date'), DB::raw('SUM(amount) as total'))
+            ->groupBy('date')
+            ->orderBy('date', 'asc')
+            ->get()
+            ->map(function ($item) {
+                return [
+                    // Format court ex: "18 Mars"
+                    'date' => Carbon::parse($item->date)->locale('fr')->translatedFormat('d M'),
+                    'amount' => (float) $item->total
+                ];
+            });
+
+        // ==========================================
+        // RÉPONSE AU FORMAT JSON POUR REACT
+        // ==========================================
+        return response()->json([
+            'kpis' => [
+                'pendingCount' => $pendingCount,
+                'validatedCount' => $validatedCount,
+                'rejectedCount' => $rejectedCount,
+                'totalCollected' => (float) $totalCollected,
+            ],
+            'paymentModeData' => $paymentModeData,
+            'trendData' => $trendData
+        ]);
+    }
+
     /**
      * 1. Lister les déclarations affectées à cette banque
      */
