@@ -13,6 +13,7 @@ class CnpsAgent extends Model
         "user_id",
         "matricule",
         "full_name",
+        'is_admin',
         "department"
     ];
     

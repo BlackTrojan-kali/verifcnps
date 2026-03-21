@@ -60,6 +60,7 @@ class DatabaseSeeder extends Seeder
         ]);
             CnpsAgent::factory()->create([
             'user_id' => $userCnps->id,
+            "is_admin" =>true,
             'matricule' => 'ADMIN-001',
             "full_name" => 'Superviseur CNPS'
         ]);

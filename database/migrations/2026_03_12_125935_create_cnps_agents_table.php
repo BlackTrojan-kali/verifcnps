@@ -16,6 +16,7 @@ return new class extends Migration
             $table->foreignId("user_id")->constrained()->onDelete("cascade");
             $table->string("matricule");
             $table->string("full_name");
+            $table->boolean("is_admin")->default(false);
             $table->string("department")->nullable();
             $table->timestamps();
         });

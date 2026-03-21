@@ -46,7 +46,8 @@ Route::middleware("auth:sanctum")->group(function(){
     
         // Gestion des dépôts au guichet
         Route::post('/counter-deposits', [BankController::class, 'storeCounterDeposit']);
-        Route::post('/counter-deposits/{id}', [BankController::class, 'updateCounterDeposit']); // POST avec _method=PUT pour le FormData
+        // Modifiez cette ligne dans routes/api.php
+        Route::put('/counter-deposits/{id}', [BankController::class, 'updateCounterDeposit']); // POST avec _method=PUT pour le FormData
         
         // Recherche d'entreprise au guichet
         Route::get('/companies/search', [BankController::class, 'searchCompanyByNiu']);
@@ -55,6 +56,7 @@ Route::middleware("auth:sanctum")->group(function(){
         Route::post('/declarations/{id}/receipt', [CnpsController::class, 'uploadReceipt']);
         // Lister toutes les déclarations (avec filtres et pagination)
         Route::get('/declarations', [CnpsController::class, 'index']);
+        Route::patch('/agents/{id}/toggle-admin', [CnpsController::class, 'toggleAdminStatus']);
         // ... vos routes CNPS existantes ...
         
         // Exporter le rapport PDF

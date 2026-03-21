@@ -153,14 +153,23 @@ class BankController extends Controller
     /**
      * 2. Afficher les détails d'une déclaration spécifique
      */
-    public function show($id)
+   public function show($id)
     {
-        $bank = Auth::user()->bank;
-        $declaration = Declaration::with('company')->where("bank_id", $bank->id)->findOrFail($id);
+        $user = Auth::user();
+        $declaration = Declaration::findOrFail($id);
 
-        return response()->json($declaration);
+        // --- LA SÉCURITÉ MANQUANTE EST ICI ---
+        // On vérifie que la déclaration appartient bien à la banque connectée
+        if ($declaration->bank_id !== $user->bank->id) {
+            return response()->json([
+                'message' => 'Accès interdit. Cette déclaration n\'appartient pas à votre banque.'
+            ], 403); // 403 Forbidden
+        }
+
+        return response()->json([
+            'declaration' => $declaration
+        ]);
     }
-
     /**
      * 3. Valider le paiement (Confirmation de réception des fonds)
      */

@@ -17,12 +17,19 @@ class NotificationController extends Controller
         $notifications = Auth::user()->notifications()->paginate(50);
         return response()->json($notifications);
     }
-    public function markAsRead($id){
-        Auth::user()->notifications()->where("id",$id)->markAsRead();
-        return response()->json(["message"=>"notification read"],201);
+   public function markAsRead($id){
+        // 1. On cherche la notification par son ID
+        $notification = Auth::user()->notifications()->find($id);
+        
+        // 2. Si on la trouve, on la marque comme lue
+        if ($notification) {
+            $notification->markAsRead();
+        }
+        
+        return response()->json(["message" => "notification read"], 201);
     }
     public function markAllAsRead(){
-        Auth::user()->unreadNotifications->markAsRead;
+      Auth::user()->unreadNotifications->markAsRead(); // <--- avec les parenthèses ()
         return response()->json(["message"=>"all notifications as been read"]);
     }
 }

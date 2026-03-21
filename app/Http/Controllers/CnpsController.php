@@ -10,6 +10,7 @@ use App\Notifications\DeclarationStatusUpdated;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
@@ -270,10 +271,11 @@ class CnpsController extends Controller
      */
     public function storeCnpsAgent(Request $request)
     {
-        $request->validate([
+       $request->validate([
             'email' => 'required|email|unique:users,email',
             'password' => 'required|string|min:6',
-            'matricule' => 'required|string|unique:cnps,matricule', 
+            // --- LA CORRECTION EST ICI : cnps_agents au lieu de cnps ---
+            'matricule' => 'required|string|unique:cnps_agents,matricule', 
             'full_name' => 'required|string',
         ]);
 
@@ -395,5 +397,30 @@ class CnpsController extends Controller
             'message' => 'Quittance uploadée et transmise à l\'entreprise avec succès.',
             'declaration' => $declaration
         ]);
+    }
+    /**
+     * Modifier les droits d'administration d'un agent CNPS
+     */
+    public function toggleAdminStatus($id)
+    {
+        $agent = CnpsAgent::findOrFail($id);
+
+        // Sécurité : on empêche l'utilisateur connecté de modifier son propre statut
+        if ($agent->user_id === Auth::user()->id) {
+            return response()->json([
+                'message' => 'Opération refusée : vous ne pouvez pas modifier vos propres droits d\'administration.'
+            ], 403);
+        }
+
+        // On inverse le statut (si true devient false, si false devient true)
+        $agent->is_admin = !$agent->is_admin;
+        $agent->save();
+
+        $roleText = $agent->is_admin ? 'Administrateur' : 'Agent simple';
+
+        return response()->json([
+            'message' => "Le statut a été mis à jour avec succès ($roleText).",
+            'agent' => $agent
+        ], 200);
     }
 }
