@@ -7,53 +7,56 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
+// Importation requise pour les attributs Swagger PHP 8
+use OpenApi\Attributes as OA;
+
 class AuthController extends Controller
 {
-    //
-  /**
-     * @OA\Post(
-     * path="/api/login",
-     * operationId="login",
-     * tags={"Authentification"},
-     * summary="Connecter un utilisateur (Banque ou CNPS)",
-     * description="Permet à un agent CNPS ou à une banque de se connecter et de récupérer un token Sanctum.",
-     * @OA\RequestBody(
-     * required=true,
-     * @OA\JsonContent(
-     * required={"email","password"},
-     * @OA\Property(property="email", type="string", format="email", example="bank@test.com"),
-     * @OA\Property(property="password", type="string", format="password", example="password123")
-     * )
-     * ),
-     * @OA\Response(
-     * response=200,
-     * description="Authentification réussie",
-     * @OA\JsonContent(
-     * @OA\Property(property="message", type="string", example="authentification reussie"),
-     * @OA\Property(property="access_token", type="string", example="1|abcdef123456..."),
-     * @OA\Property(property="token_type", type="string", example="Bearer"),
-     * @OA\Property(property="user", type="object")
-     * )
-     * ),
-     * @OA\Response(
-     * response=401,
-     * description="Identifiants invalides"
-     * )
-     * )
-     */
+    #[OA\Post(
+        path: '/api/login',
+        operationId: 'login',
+        summary: 'Connecter un utilisateur (Banque ou CNPS)',
+        description: 'Permet à un agent CNPS ou à une banque de se connecter et de récupérer un token Sanctum.',
+        tags: ['Authentification']
+    )]
+    #[OA\RequestBody(
+        required: true,
+        content: new OA\JsonContent(
+            required: ['email', 'password'],
+            properties: [
+                new OA\Property(property: 'email', type: 'string', format: 'email', example: 'bank@test.com'),
+                new OA\Property(property: 'password', type: 'string', format: 'password', example: 'password123')
+            ]
+        )
+    )]
+    #[OA\Response(
+        response: 200,
+        description: 'Authentification réussie',
+        content: new OA\JsonContent(
+            properties: [
+                new OA\Property(property: 'message', type: 'string', example: 'authentification reussie'),
+                new OA\Property(property: 'access_token', type: 'string', example: '1|abcdef123456...'),
+                new OA\Property(property: 'token_type', type: 'string', example: 'Bearer'),
+                new OA\Property(property: 'user', type: 'object')
+            ]
+        )
+    )]
+    #[OA\Response(response: 401, description: 'Identifiants invalides')]
     public function login(Request $request){
-        
         $request->validate([
             "email"=>"email|required ",
             "password"=>"required| string|min:4",
         ]);
+
         $credentials = [
             "email" => $request->email,
             "password" => $request->password
         ];
+
         if(!Auth::attempt($credentials)){
             return response()->json("identifiants invalides",401);
         }
+
         $user = User::where("email",$request->email)->first();
 
         if($user->role === "company"){
@@ -62,25 +65,52 @@ class AuthController extends Controller
 
         if($user->role === "bank"){
             $user->load("bank");
-        
         }
         if($user->role === "cnps"){
             $user->load("cnps");
         }        
+
         $token = $user->createToken("verif_cnps_token")->plainTextToken ;
 
-        return  response()->json([
+        return response()->json([
             "user"=>$user,
             "access_token"=>$token,
             "token_type"=>"Bearer",
             "message"=>"authentification reussie"
         ]);
-        
     }
 
-   public function loginCompany(Request $request)
+    #[OA\Post(
+        path: '/api/login-company',
+        operationId: 'loginCompany',
+        summary: "Connexion d'une entreprise via NIU",
+        description: "Authentifie ou crée une entreprise avec son NIU et génère un token.",
+        tags: ['Authentification']
+    )]
+    #[OA\RequestBody(
+        required: true,
+        content: new OA\JsonContent(
+            required: ['niu'],
+            properties: [
+                new OA\Property(property: 'niu', type: 'string', example: 'M0123456789', description: "Numéro d'Identifiant Unique"),
+                new OA\Property(property: 'name', type: 'string', example: 'Ikarootech', description: 'Raison sociale (optionnelle)')
+            ]
+        )
+    )]
+    #[OA\Response(
+        response: 200,
+        description: 'Authentification réussie',
+        content: new OA\JsonContent(
+            properties: [
+                new OA\Property(property: 'message', type: 'string', example: 'Authentification réussie'),
+                new OA\Property(property: 'access_token', type: 'string', example: '1|abcdef...'),
+                new OA\Property(property: 'token_type', type: 'string', example: 'Bearer'),
+                new OA\Property(property: 'user', type: 'object')
+            ]
+        )
+    )]
+    public function loginCompany(Request $request)
     {
-        
         $request->validate([
             "niu" => ["required", "string"], 
             "name" => "string|nullable",
@@ -99,9 +129,8 @@ class AuthController extends Controller
                 "raison_sociale" => $request->name ?? "À définir"
             ]);
         
-        $user->load("company");
-        
-            } else {
+            $user->load("company");
+        } else {
             $user = $company->user; 
         }
         
@@ -114,37 +143,25 @@ class AuthController extends Controller
             "user" => $user,
         ]);
     }
-    /**
-     * @OA\Get(
-     * path="/api/me",
-     * operationId="me",
-     * tags={"Authentification"},
-     * summary="Récupérer le profil de l'utilisateur connecté",
-     * description="Retourne les informations de l'utilisateur actuel selon son rôle (Entreprise, Banque, ou Agent CNPS). Nécessite un token valide.",
-     * security={{"bearerAuth":{}}},
-     * @OA\Response(
-     * response=200,
-     * description="Profil récupéré avec succès",
-     * @OA\JsonContent(
-     * @OA\Property(property="id", type="integer", example=1),
-     * @OA\Property(property="email", type="string", example="joseph@authentica.cm"),
-     * @OA\Property(property="role", type="string", example="company"),
-     * @OA\Property(property="company", type="object",
-     * @OA\Property(property="niu", type="string", example="M0123456789"),
-     * @OA\Property(property="raison_sociale", type="string", example="Ikarootech")
-     * )
-     * )
-     * ),
-     * @OA\Response(
-     * response=401,
-     * description="Non authentifié (Token manquant ou invalide)"
-     * )
-     * )
-     */
-      public function  me(){
-        $user =  Auth::user();
+
+    #[OA\Get(
+        path: '/api/me',
+        operationId: 'me',
+        summary: "Récupérer le profil de l'utilisateur connecté",
+        description: "Retourne les informations de l'utilisateur actuel. Nécessite le token Bearer.",
+        tags: ['Authentification'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\Response(
+        response: 200,
+        description: 'Profil récupéré',
+        content: new OA\JsonContent(type: 'object')
+    )]
+    #[OA\Response(response: 401, description: 'Non authentifié (Token manquant ou invalide)')]
+    public function me(){
+        $user = Auth::user();
         if($user->role === "company"){
-        
+            // Code existant
         }
         if($user->role === "bank"){
             $user->load("bank");
@@ -155,12 +172,19 @@ class AuthController extends Controller
         return response()->json($user);
     }
 
+    #[OA\Get(
+        path: '/api/logout',
+        operationId: 'logout',
+        summary: "Déconnexion de l'utilisateur",
+        description: "Détruit le token actuel de l'utilisateur.",
+        tags: ['Authentification'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\Response(response: 200, description: 'Déconnexion réussie')]
     public function logout(Request $request){
-            Auth::user()->currentAccessToken()->delete;
-            return response()->json([
-                "message"=>"vous êtes déconnecté"
-            ]);
+        Auth::user()->currentAccessToken()->delete();
+        return response()->json([
+            "message"=>"vous êtes déconnecté"
+        ]);
     }
-
-
 }

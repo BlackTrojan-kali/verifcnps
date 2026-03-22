@@ -12,8 +12,26 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage; // Indispensable pour supprimer l'ancien PDF lors d'une modification
 
+// Importation indispensable pour Swagger
+use OpenApi\Attributes as OA;
+
 class CompanyController extends Controller
 {
+    #[OA\Get(
+        path: '/api/company/declarations',
+        operationId: 'companyListDeclarations',
+        summary: 'Lister l\'historique des déclarations de l\'entreprise',
+        description: 'Retourne les déclarations de l\'entreprise connectée avec possibilités de filtres.',
+        tags: ['Espace Entreprise'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\Parameter(name: 'bank_id', in: 'query', required: false, description: 'ID de la banque', schema: new OA\Schema(type: 'integer'))]
+    #[OA\Parameter(name: 'reference', in: 'query', required: false, description: 'Référence de la transaction', schema: new OA\Schema(type: 'string'))]
+    #[OA\Parameter(name: 'mobile_reference', in: 'query', required: false, description: 'Référence Mobile Money', schema: new OA\Schema(type: 'string'))]
+    #[OA\Parameter(name: 'period', in: 'query', required: false, description: 'Période (ex: 2026-03)', schema: new OA\Schema(type: 'string', format: 'date'))]
+    #[OA\Parameter(name: 'start_date', in: 'query', required: false, description: 'Date de début', schema: new OA\Schema(type: 'string', format: 'date'))]
+    #[OA\Parameter(name: 'end_date', in: 'query', required: false, description: 'Date de fin', schema: new OA\Schema(type: 'string', format: 'date'))]
+    #[OA\Response(response: 200, description: 'Historique récupéré avec succès')]
     /**
      * 1. Lister l'historique des déclarations de l'entreprise
      */
@@ -54,6 +72,34 @@ class CompanyController extends Controller
         ]);
     }
     
+    #[OA\Post(
+        path: '/api/company/declarations',
+        operationId: 'InitiateDeclaration',
+        summary: 'Initier une nouvelle déclaration',
+        description: 'Crée une déclaration et envoie la preuve de paiement (PDF).',
+        tags: ['Espace Entreprise'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\RequestBody(
+        required: true,
+        content: new OA\MediaType(
+            mediaType: 'multipart/form-data',
+            schema: new OA\Schema(
+                required: ['reference', 'period', 'amount', 'payment_mode'],
+                properties: [
+                    new OA\Property(property: 'bank_id', type: 'integer', description: 'ID de la banque (requis sauf pour MoMo)'),
+                    new OA\Property(property: 'reference', type: 'string', description: 'Référence du paiement'),
+                    new OA\Property(property: 'mobile_reference', type: 'string', description: 'Référence transaction MoMo'),
+                    new OA\Property(property: 'period', type: 'string', format: 'date', description: 'Période concernée'),
+                    new OA\Property(property: 'amount', type: 'number', description: 'Montant payé'),
+                    new OA\Property(property: 'payment_mode', type: 'string', enum: ['virement', 'especes', 'ordre_virement', 'mobile_money', 'orange_money']),
+                    new OA\Property(property: 'proof_pdf', type: 'string', format: 'binary', description: 'Preuve de paiement (PDF)'),
+                    new OA\Property(property: 'status', type: 'string', description: 'Statut initial (submited par défaut)')
+                ]
+            )
+        )
+    )]
+    #[OA\Response(response: 200, description: 'Paiement initié avec succès')]
     /**
      * 2. Initier une nouvelle déclaration depuis l'espace Entreprise
      */
@@ -123,6 +169,34 @@ class CompanyController extends Controller
         ]);
     }
 
+    #[OA\Put(
+        path: '/api/company/declarations/{id}',
+        operationId: 'EditDeclaration',
+        summary: 'Modifier une déclaration',
+        description: 'Corriger une déclaration (généralement après un rejet). Utilisez POST avec _method=PUT si vous envoyez un fichier PDF.',
+        tags: ['Espace Entreprise'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\Parameter(name: 'id', in: 'path', required: true, description: 'ID de la déclaration', schema: new OA\Schema(type: 'integer'))]
+    #[OA\RequestBody(
+        required: true,
+        content: new OA\MediaType(
+            mediaType: 'multipart/form-data',
+            schema: new OA\Schema(
+                required: ['reference', 'amount', 'payment_mode'],
+                properties: [
+                    new OA\Property(property: 'bank_id', type: 'integer'),
+                    new OA\Property(property: 'reference', type: 'string'),
+                    new OA\Property(property: 'mobile_reference', type: 'string'),
+                    new OA\Property(property: 'amount', type: 'number'),
+                    new OA\Property(property: 'payment_mode', type: 'string', enum: ['virement', 'especes', 'ordre_virement', 'mobile_money', 'orange_money']),
+                    new OA\Property(property: 'proof_pdf', type: 'string', format: 'binary', description: 'Nouveau fichier PDF (optionnel)')
+                ]
+            )
+        )
+    )]
+    #[OA\Response(response: 200, description: 'Déclaration corrigée avec succès')]
+    #[OA\Response(response: 403, description: 'Impossible de modifier une transaction validée')]
     /**
      * 3. Modifier une déclaration (Généralement après un rejet de la banque)
      */
@@ -183,6 +257,24 @@ class CompanyController extends Controller
         ]);
     }
 
+    #[OA\Patch(
+        path: '/api/company/declarations/{id}/status',
+        operationId: 'changeDeclarationStatus',
+        summary: 'Changer directement le statut (Utilitaire)',
+        tags: ['Espace Entreprise'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\Parameter(name: 'id', in: 'path', required: true, description: 'ID de la déclaration', schema: new OA\Schema(type: 'integer'))]
+    #[OA\RequestBody(
+        required: true,
+        content: new OA\JsonContent(
+            required: ['status'],
+            properties: [
+                new OA\Property(property: 'status', type: 'string', enum: ['initiated', 'submited', 'bank_validated', 'cnps_validated', 'rejected'])
+            ]
+        )
+    )]
+    #[OA\Response(response: 200, description: 'Statut mis à jour')]
     /**
      * 4. (Utilitaire) Changer directement le statut
      */
@@ -201,7 +293,18 @@ class CompanyController extends Controller
         ]);
     }
  
-    
+    #[OA\Get(
+        path: '/api/company/declarations/{id}/download-receipt',
+        operationId: 'downloadReceipt',
+        summary: 'Télécharger la quittance officielle de la CNPS',
+        description: 'Télécharge le fichier PDF de la quittance si elle a été générée.',
+        tags: ['Espace Entreprise'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\Parameter(name: 'id', in: 'path', required: true, description: 'ID de la déclaration', schema: new OA\Schema(type: 'integer'))]
+    #[OA\Response(response: 200, description: 'Fichier de la quittance', content: new OA\MediaType(mediaType: 'application/pdf'))]
+    #[OA\Response(response: 403, description: 'Accès non autorisé')]
+    #[OA\Response(response: 404, description: 'Quittance introuvable')]
     /**
      * Endpoint général pour télécharger la quittance officielle de la CNPS (PDF)
      */

@@ -7,8 +7,23 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth; // <-- NE PAS OUBLIER CET IMPORT
 use Illuminate\Support\Facades\Storage;
 
+// Importation indispensable pour Swagger
+use OpenApi\Attributes as OA;
+
 class DeclarationController extends Controller
 {
+    #[OA\Get(
+        path: '/api/declarations/{id}',
+        operationId: 'showDeclarationGeneral',
+        summary: 'Détail d\'une cotisation spécifique',
+        description: 'Endpoint général permettant à une banque ou une entreprise de voir les détails de SA cotisation.',
+        tags: ['Déclarations (Général)'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\Parameter(name: 'id', in: 'path', required: true, description: 'ID de la déclaration', schema: new OA\Schema(type: 'integer'))]
+    #[OA\Response(response: 200, description: 'Détails récupérés avec succès')]
+    #[OA\Response(response: 403, description: 'Accès non autorisé')]
+    #[OA\Response(response: 404, description: 'Cotisation introuvable')]
     /**
      * Endpoint de détail d'une cotisation spécifique avec ses informations de paiement.
      */
@@ -35,6 +50,18 @@ class DeclarationController extends Controller
         ]);
     }
 
+    #[OA\Get(
+        path: '/api/declarations/{id}/download-proof',
+        operationId: 'downloadProofGeneral',
+        summary: 'Télécharger la preuve de paiement (PDF)',
+        description: 'Permet de télécharger le justificatif de paiement uploadé par l\'entreprise.',
+        tags: ['Déclarations (Général)'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\Parameter(name: 'id', in: 'path', required: true, description: 'ID de la déclaration', schema: new OA\Schema(type: 'integer'))]
+    #[OA\Response(response: 200, description: 'Fichier de la preuve (PDF)', content: new OA\MediaType(mediaType: 'application/pdf'))]
+    #[OA\Response(response: 403, description: 'Accès non autorisé')]
+    #[OA\Response(response: 404, description: 'Cotisation ou fichier introuvable')]
     /**
      * Endpoint général pour télécharger la preuve de paiement (PDF)
      */

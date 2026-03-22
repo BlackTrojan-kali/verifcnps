@@ -4,20 +4,32 @@ namespace App\Http\Controllers;
 
 use App\Models\Company;
 use App\Models\Declaration;
-use App\Models\User; // <-- IMPORT INDISPENSABLE
-use App\Notifications\DeclarationStatusUpdated; // <-- IMPORT DE VOTRE NOTIFICATION
+use App\Models\User;
+use App\Notifications\DeclarationStatusUpdated;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Notification; // <-- IMPORT POUR L'ENVOI EN MASSE
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
+
+// Importation indispensable pour Swagger
+use OpenApi\Attributes as OA;
 
 class BankController extends Controller
 {
-    /**
-     * Statistiques pour le Dashboard de la Banque
-     */
+    #[OA\Get(
+        path: '/api/bank/dashboard-stats',
+        operationId: 'bankDashboardStats',
+        summary: 'Statistiques pour le Dashboard de la Banque',
+        description: 'Retourne les KPIs, les données des modes de paiement et la tendance des encaissements.',
+        tags: ['Espace Banque'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\Parameter(name: 'start_date', in: 'query', required: false, description: 'Date de début (Y-m-d)', schema: new OA\Schema(type: 'string', format: 'date'))]
+    #[OA\Parameter(name: 'end_date', in: 'query', required: false, description: 'Date de fin (Y-m-d)', schema: new OA\Schema(type: 'string', format: 'date'))]
+    #[OA\Response(response: 200, description: 'Statistiques récupérées avec succès')]
+    #[OA\Response(response: 403, description: 'Aucune banque rattachée à cet utilisateur')]
     public function dashboardStats(Request $request)
     {
         $user = Auth::user();
@@ -111,9 +123,20 @@ class BankController extends Controller
         ]);
     }
 
-    /**
-     * 1. Lister les déclarations affectées à cette banque
-     */
+    #[OA\Get(
+        path: '/api/bank/declarations',
+        operationId: 'listBankDeclarations',
+        summary: 'Lister les déclarations affectées à cette banque',
+        description: 'Retourne la liste paginée des déclarations filtrées par statut, période ou référence.',
+        tags: ['Espace Banque'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\Parameter(name: 'reference', in: 'query', required: false, description: 'Référence de la déclaration', schema: new OA\Schema(type: 'string'))]
+    #[OA\Parameter(name: 'status', in: 'query', required: false, description: 'Statut (ex: submited, bank_validated)', schema: new OA\Schema(type: 'string'))]
+    #[OA\Parameter(name: 'period', in: 'query', required: false, description: 'Période (ex: 2026-03)', schema: new OA\Schema(type: 'string'))]
+    #[OA\Parameter(name: 'start_date', in: 'query', required: false, description: 'Date de début (Y-m-d)', schema: new OA\Schema(type: 'string', format: 'date'))]
+    #[OA\Parameter(name: 'end_date', in: 'query', required: false, description: 'Date de fin (Y-m-d)', schema: new OA\Schema(type: 'string', format: 'date'))]
+    #[OA\Response(response: 200, description: 'Liste récupérée avec succès')]
     public function index(Request $request)
     {
         $bank = Auth::user()->bank;
@@ -150,29 +173,55 @@ class BankController extends Controller
         return response()->json($declarations);
     }
 
-    /**
-     * 2. Afficher les détails d'une déclaration spécifique
-     */
-   public function show($id)
+    #[OA\Get(
+        path: '/api/bank/declarations/{id}',
+        operationId: 'showBankDeclaration',
+        summary: 'Afficher les détails d\'une déclaration spécifique',
+        tags: ['Espace Banque'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\Parameter(name: 'id', in: 'path', required: true, description: 'ID de la déclaration', schema: new OA\Schema(type: 'integer'))]
+    #[OA\Response(response: 200, description: 'Détails de la déclaration')]
+    #[OA\Response(response: 403, description: 'Accès interdit')]
+    #[OA\Response(response: 404, description: 'Déclaration non trouvée')]
+    public function show($id)
     {
         $user = Auth::user();
         $declaration = Declaration::findOrFail($id);
 
-        // --- LA SÉCURITÉ MANQUANTE EST ICI ---
         // On vérifie que la déclaration appartient bien à la banque connectée
         if ($declaration->bank_id !== $user->bank->id) {
             return response()->json([
                 'message' => 'Accès interdit. Cette déclaration n\'appartient pas à votre banque.'
-            ], 403); // 403 Forbidden
+            ], 403);
         }
 
         return response()->json([
             'declaration' => $declaration
         ]);
     }
-    /**
-     * 3. Valider le paiement (Confirmation de réception des fonds)
-     */
+
+    #[OA\Put(
+        path: '/api/bank/declarations/{id}/validate',
+        operationId: 'validateBankPayment',
+        summary: 'Valider un paiement',
+        description: 'Confirmation de réception des fonds par la banque.',
+        tags: ['Espace Banque'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\Parameter(name: 'id', in: 'path', required: true, description: 'ID de la déclaration', schema: new OA\Schema(type: 'integer'))]
+    #[OA\RequestBody(
+        required: true,
+        content: new OA\JsonContent(
+            required: ['reference'],
+            properties: [
+                new OA\Property(property: 'reference', type: 'string', description: 'Référence de la transaction bancaire'),
+                new OA\Property(property: 'order_reference', type: 'string', description: 'Référence de l\'ordre de virement (si applicable)')
+            ]
+        )
+    )]
+    #[OA\Response(response: 200, description: 'Paiement validé avec succès')]
+    #[OA\Response(response: 403, description: 'Déclaration déjà traitée')]
     public function validatePayment(Request $request, $id)
     {
         $bank = Auth::user()->bank;
@@ -227,9 +276,25 @@ class BankController extends Controller
         ]);
     }
 
-    /**
-     * 4. Rejeter le paiement
-     */
+    #[OA\Put(
+        path: '/api/bank/declarations/{id}/reject',
+        operationId: 'rejectBankPayment',
+        summary: 'Rejeter un paiement',
+        description: 'Refuser une déclaration en attente.',
+        tags: ['Espace Banque'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\Parameter(name: 'id', in: 'path', required: true, description: 'ID de la déclaration', schema: new OA\Schema(type: 'integer'))]
+    #[OA\RequestBody(
+        required: true,
+        content: new OA\JsonContent(
+            required: ['comment_reject'],
+            properties: [
+                new OA\Property(property: 'comment_reject', type: 'string', description: 'Motif du rejet (min 5 caractères)')
+            ]
+        )
+    )]
+    #[OA\Response(response: 200, description: 'Paiement rejeté')]
     public function rejectPayment(Request $request, $id)
     {
         $bank = Auth::user()->bank;
@@ -264,9 +329,33 @@ class BankController extends Controller
         ]);
     }
 
-    /**
-     * 5. Créer un dépôt au guichet (Espèces ou Ordre de Virement)
-     */
+    #[OA\Post(
+        path: '/api/bank/counter-deposits',
+        operationId: 'storeCounterDeposit',
+        summary: 'Créer un dépôt au guichet',
+        description: 'Enregistre un paiement en espèces ou ordre de virement fait physiquement à la banque.',
+        tags: ['Espace Banque'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\RequestBody(
+        required: true,
+        content: new OA\MediaType(
+            mediaType: 'multipart/form-data',
+            schema: new OA\Schema(
+                required: ['company_id', 'reference', 'payment_mode', 'period', 'amount'],
+                properties: [
+                    new OA\Property(property: 'company_id', type: 'integer', description: 'ID de l\'entreprise'),
+                    new OA\Property(property: 'reference', type: 'string', description: 'Référence du reçu bancaire'),
+                    new OA\Property(property: 'payment_mode', type: 'string', enum: ['especes', 'ordre_virement']),
+                    new OA\Property(property: 'order_reference', type: 'string', description: 'Référence de l\'ordre si applicable'),
+                    new OA\Property(property: 'period', type: 'string', format: 'date', description: 'Période (Y-m-d)'),
+                    new OA\Property(property: 'amount', type: 'number', description: 'Montant déposé'),
+                    new OA\Property(property: 'proof_pdf', type: 'string', format: 'binary', description: 'Fichier PDF justificatif')
+                ]
+            )
+        )
+    )]
+    #[OA\Response(response: 201, description: 'Dépôt créé avec succès')]
     public function storeCounterDeposit(Request $request)
     {
         $bank = Auth::user()->bank;
@@ -313,9 +402,35 @@ class BankController extends Controller
         ], 201);
     }
 
-    /**
-     * 6. Modifier un dépôt au guichet
-     */
+    #[OA\Put(
+        path: '/api/bank/counter-deposits/{id}',
+        operationId: 'updateCounterDeposit',
+        summary: 'Modifier un dépôt au guichet',
+        description: 'Met à jour un dépôt existant. Note : utiliser POST avec le paramètre _method=PUT si vous envoyez un fichier.',
+        tags: ['Espace Banque'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\Parameter(name: 'id', in: 'path', required: true, description: 'ID de la déclaration à modifier', schema: new OA\Schema(type: 'integer'))]
+    #[OA\RequestBody(
+        required: true,
+        content: new OA\MediaType(
+            mediaType: 'multipart/form-data',
+            schema: new OA\Schema(
+                required: ['company_id', 'reference', 'payment_mode', 'period', 'amount'],
+                properties: [
+                    new OA\Property(property: 'company_id', type: 'integer'),
+                    new OA\Property(property: 'reference', type: 'string'),
+                    new OA\Property(property: 'payment_mode', type: 'string', enum: ['especes', 'ordre_virement']),
+                    new OA\Property(property: 'order_reference', type: 'string'),
+                    new OA\Property(property: 'period', type: 'string', format: 'date'),
+                    new OA\Property(property: 'amount', type: 'number'),
+                    new OA\Property(property: 'proof_pdf', type: 'string', format: 'binary', description: 'Nouveau fichier PDF (optionnel)')
+                ]
+            )
+        )
+    )]
+    #[OA\Response(response: 200, description: 'Dépôt modifié avec succès')]
+    #[OA\Response(response: 403, description: 'Modification impossible (déjà validé CNPS)')]
     public function updateCounterDeposit(Request $request, $id)
     {
         $bank = Auth::user()->bank;
@@ -362,9 +477,17 @@ class BankController extends Controller
         ]);
     }
 
-    /**
-     * 7. Rechercher une entreprise par NIU
-     */
+    #[OA\Get(
+        path: '/api/bank/companies/search',
+        operationId: 'searchCompanyByNiuBank',
+        summary: 'Rechercher une entreprise par NIU',
+        description: 'Permet à la banque de retrouver les informations d\'une entreprise lors d\'un dépôt au guichet.',
+        tags: ['Espace Banque'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\Parameter(name: 'niu', in: 'query', required: true, description: 'Numéro d\'Identifiant Unique de l\'entreprise', schema: new OA\Schema(type: 'string'))]
+    #[OA\Response(response: 200, description: 'Entreprise trouvée')]
+    #[OA\Response(response: 404, description: 'Aucune entreprise trouvée')]
     public function searchCompanyByNiu(Request $request)
     {
         $request->validate(['niu' => 'required|string']);

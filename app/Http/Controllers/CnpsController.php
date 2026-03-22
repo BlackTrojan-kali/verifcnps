@@ -15,13 +15,28 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 
+// Importation indispensable pour Swagger
+use OpenApi\Attributes as OA;
+
 class CnpsController extends Controller
 {
     //
  
-    /**
-     * 1. SUPER TABLEAU DE BORD : Voir et filtrer TOUTES les déclarations
-     */
+    #[OA\Get(
+        path: '/api/cnps/declarations',
+        operationId: 'cnpsListDeclarations',
+        summary: 'Voir et filtrer TOUTES les déclarations',
+        description: 'Tableau de bord super-admin pour la CNPS avec recherche et filtres avancés.',
+        tags: ['Espace CNPS'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\Parameter(name: 'status', in: 'query', required: false, description: 'Filtrer par statut', schema: new OA\Schema(type: 'string'))]
+    #[OA\Parameter(name: 'bank_id', in: 'query', required: false, description: 'ID de la banque', schema: new OA\Schema(type: 'integer'))]
+    #[OA\Parameter(name: 'payment_mode', in: 'query', required: false, description: 'Mode de paiement', schema: new OA\Schema(type: 'string'))]
+    #[OA\Parameter(name: 'search', in: 'query', required: false, description: 'Recherche par référence ou NIU', schema: new OA\Schema(type: 'string'))]
+    #[OA\Parameter(name: 'start_date', in: 'query', required: false, description: 'Date de début (Y-m-d)', schema: new OA\Schema(type: 'string', format: 'date'))]
+    #[OA\Parameter(name: 'end_date', in: 'query', required: false, description: 'Date de fin (Y-m-d)', schema: new OA\Schema(type: 'string', format: 'date'))]
+    #[OA\Response(response: 200, description: 'Liste des déclarations')]
     public function index(Request $request)
     {
         // On charge les relations pour que React ait le NIU de l'entreprise et le nom de la banque
@@ -66,9 +81,16 @@ class CnpsController extends Controller
         return response()->json($declarations);
     }
 
-    /**
-     * 2. RAPPROCHEMENT : La CNPS valide définitivement
-     */
+    #[OA\Put(
+        path: '/api/cnps/declarations/{id}/reconcile',
+        operationId: 'reconcilePayment',
+        summary: 'Rapprochement du paiement',
+        description: 'La CNPS valide définitivement la déclaration.',
+        tags: ['Espace CNPS'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\Parameter(name: 'id', in: 'path', required: true, description: 'ID de la déclaration', schema: new OA\Schema(type: 'integer'))]
+    #[OA\Response(response: 200, description: 'Paiement rapproché avec succès')]
     public function reconcilePayment($id)
     {
         $declaration = Declaration::findOrFail($id);
@@ -88,9 +110,25 @@ class CnpsController extends Controller
         ]);
     }
 
-    /**
-     * 3. REJET : La CNPS signale un problème (faux PDF, montant erroné, etc.)
-     */
+    #[OA\Put(
+        path: '/api/cnps/declarations/{id}/reject',
+        operationId: 'cnpsRejectPayment',
+        summary: 'Rejeter un paiement',
+        description: 'La CNPS signale un problème (faux PDF, montant erroné, etc.).',
+        tags: ['Espace CNPS'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\Parameter(name: 'id', in: 'path', required: true, description: 'ID de la déclaration', schema: new OA\Schema(type: 'integer'))]
+    #[OA\RequestBody(
+        required: true,
+        content: new OA\JsonContent(
+            required: ['comment_reject'],
+            properties: [
+                new OA\Property(property: 'comment_reject', type: 'string', description: 'Motif du rejet (min 5 caractères)')
+            ]
+        )
+    )]
+    #[OA\Response(response: 200, description: 'Déclaration rejetée')]
     public function rejectPayment(Request $request, $id)
     {
         $request->validate([
@@ -117,10 +155,18 @@ class CnpsController extends Controller
         ]);
     }
 
-    /**
-     * 4. REPORTING (Bonus) : Fournir les données pour les graphiques React
-     */
-  public function statistics(Request $request)
+    #[OA\Get(
+        path: '/api/cnps/statistics',
+        operationId: 'cnpsStatistics',
+        summary: 'Données pour les graphiques React',
+        description: 'Fournit les KPIs et les statistiques des banques/modes de paiement.',
+        tags: ['Espace CNPS'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\Parameter(name: 'start_date', in: 'query', required: false, description: 'Date de début', schema: new OA\Schema(type: 'string', format: 'date'))]
+    #[OA\Parameter(name: 'end_date', in: 'query', required: false, description: 'Date de fin', schema: new OA\Schema(type: 'string', format: 'date'))]
+    #[OA\Response(response: 200, description: 'Statistiques récupérées')]
+    public function statistics(Request $request)
     {
         // 1. Initialisation de la requête de base
         $query = Declaration::query();
@@ -221,9 +267,26 @@ class CnpsController extends Controller
         ]);
     }
 
-    /**
-     * 5. Créer un nouveau compte Banque
-     */
+    #[OA\Post(
+        path: '/api/cnps/banks',
+        operationId: 'storeBank',
+        summary: 'Créer un nouveau compte Banque',
+        tags: ['Espace CNPS'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\RequestBody(
+        required: true,
+        content: new OA\JsonContent(
+            required: ['email', 'password', 'bank_code', 'bank_name'],
+            properties: [
+                new OA\Property(property: 'email', type: 'string', format: 'email'),
+                new OA\Property(property: 'password', type: 'string', format: 'password', minLength: 6),
+                new OA\Property(property: 'bank_code', type: 'string', description: 'Code de la banque'),
+                new OA\Property(property: 'bank_name', type: 'string', description: 'Nom de la banque')
+            ]
+        )
+    )]
+    #[OA\Response(response: 201, description: 'Compte bancaire créé avec succès')]
     public function storeBank(Request $request)
     {
         $request->validate([
@@ -253,6 +316,14 @@ class CnpsController extends Controller
         ], 201);
     }
 
+    #[OA\Get(
+        path: '/api/cnps/banks',
+        operationId: 'listBanks',
+        summary: 'Lister toutes les banques',
+        tags: ['Espace CNPS'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\Response(response: 200, description: 'Liste des banques')]
     public function listBanks()
     {
         $banks = Bank::with('user')->orderBy('bank_name', 'asc')->get();
@@ -266,9 +337,26 @@ class CnpsController extends Controller
      * ====================================================
      */
 
-    /**
-     * 7. Créer un nouvel Agent CNPS (Collègue)
-     */
+    #[OA\Post(
+        path: '/api/cnps/agents',
+        operationId: 'storeCnpsAgent',
+        summary: 'Créer un nouvel Agent CNPS (Collègue)',
+        tags: ['Espace CNPS'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\RequestBody(
+        required: true,
+        content: new OA\JsonContent(
+            required: ['email', 'password', 'matricule', 'full_name'],
+            properties: [
+                new OA\Property(property: 'email', type: 'string', format: 'email'),
+                new OA\Property(property: 'password', type: 'string', format: 'password', minLength: 6),
+                new OA\Property(property: 'matricule', type: 'string'),
+                new OA\Property(property: 'full_name', type: 'string')
+            ]
+        )
+    )]
+    #[OA\Response(response: 201, description: 'Agent CNPS créé avec succès')]
     public function storeCnpsAgent(Request $request)
     {
        $request->validate([
@@ -297,9 +385,14 @@ class CnpsController extends Controller
         ], 201);
     }
 
-    /**
-     * 8. Lister tous les agents CNPS du système
-     */
+    #[OA\Get(
+        path: '/api/cnps/agents',
+        operationId: 'listCnpsAgents',
+        summary: 'Lister tous les agents CNPS du système',
+        tags: ['Espace CNPS'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\Response(response: 200, description: 'Liste des agents CNPS')]
     public function listCnpsAgents()
     {
         $agents = CnpsAgent::with('user')->orderBy('full_name', 'asc')->get();
@@ -307,6 +400,20 @@ class CnpsController extends Controller
         return response()->json($agents);
     }
 
+    #[OA\Get(
+        path: '/api/cnps/reports/declarations/pdf',
+        operationId: 'exportPdf',
+        summary: 'Exporter le rapport PDF',
+        description: 'Génère un PDF basé sur les filtres fournis.',
+        tags: ['Espace CNPS'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\Parameter(name: 'status', in: 'query', required: false, schema: new OA\Schema(type: 'string'))]
+    #[OA\Parameter(name: 'bank_id', in: 'query', required: false, schema: new OA\Schema(type: 'integer'))]
+    #[OA\Parameter(name: 'payment_mode', in: 'query', required: false, schema: new OA\Schema(type: 'string'))]
+    #[OA\Parameter(name: 'start_date', in: 'query', required: false, schema: new OA\Schema(type: 'string', format: 'date'))]
+    #[OA\Parameter(name: 'end_date', in: 'query', required: false, schema: new OA\Schema(type: 'string', format: 'date'))]
+    #[OA\Response(response: 200, description: 'Fichier PDF généré', content: new OA\MediaType(mediaType: 'application/pdf'))]
     public function exportPdf(Request $request)
     {
         $query = Declaration::with(['company', 'bank']);
@@ -350,9 +457,29 @@ class CnpsController extends Controller
         return $pdf->download('Reporting_CNPS_' . date('Y-m-d') . '.pdf');
     }
 
-    /**
-     * Uploader la quittance officielle (Après le rapprochement)
-     */
+    #[OA\Post(
+        path: '/api/cnps/declarations/{id}/receipt',
+        operationId: 'uploadReceipt',
+        summary: 'Uploader la quittance officielle',
+        description: 'Upload de la quittance PDF après le rapprochement.',
+        tags: ['Espace CNPS'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\Parameter(name: 'id', in: 'path', required: true, description: 'ID de la déclaration', schema: new OA\Schema(type: 'integer'))]
+    #[OA\RequestBody(
+        required: true,
+        content: new OA\MediaType(
+            mediaType: 'multipart/form-data',
+            schema: new OA\Schema(
+                required: ['receipt_pdf'],
+                properties: [
+                    new OA\Property(property: 'receipt_pdf', type: 'string', format: 'binary', description: 'Le fichier PDF de la quittance')
+                ]
+            )
+        )
+    )]
+    #[OA\Response(response: 200, description: 'Quittance uploadée avec succès')]
+    #[OA\Response(response: 403, description: 'Paiement non rapproché')]
     public function uploadReceipt(Request $request, $id)
     {
         $declaration = Declaration::findOrFail($id);
@@ -398,9 +525,18 @@ class CnpsController extends Controller
             'declaration' => $declaration
         ]);
     }
-    /**
-     * Modifier les droits d'administration d'un agent CNPS
-     */
+
+    #[OA\Patch(
+        path: '/api/cnps/agents/{id}/toggle-admin',
+        operationId: 'toggleAdminStatus',
+        summary: 'Modifier les droits d\'administration',
+        description: 'Inverse le statut administrateur d\'un agent CNPS.',
+        tags: ['Espace CNPS'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\Parameter(name: 'id', in: 'path', required: true, description: 'ID de l\'agent', schema: new OA\Schema(type: 'integer'))]
+    #[OA\Response(response: 200, description: 'Statut mis à jour')]
+    #[OA\Response(response: 403, description: 'Opération refusée')]
     public function toggleAdminStatus($id)
     {
         $agent = CnpsAgent::findOrFail($id);

@@ -1,0 +1,1673 @@
+{
+    "openapi": "3.0.0",
+    "info": {
+        "title": "Documentation API DANAZ Pay",
+        "description": "API pour la gestion des paiements CNPS, Banques et Entreprises.",
+        "version": "1.0.0"
+    },
+    "servers": [
+        {
+            "url": "http://localhost:8000",
+            "description": "Serveur Principal local"
+        }
+    ],
+    "paths": {
+        "/api/login": {
+            "post": {
+                "tags": [
+                    "Authentification"
+                ],
+                "summary": "Connecter un utilisateur (Banque ou CNPS)",
+                "description": "Permet à un agent CNPS ou à une banque de se connecter et de récupérer un token Sanctum.",
+                "operationId": "login",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "email",
+                                    "password"
+                                ],
+                                "properties": {
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email",
+                                        "example": "bank@test.com"
+                                    },
+                                    "password": {
+                                        "type": "string",
+                                        "format": "password",
+                                        "example": "password123"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Authentification réussie",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "example": "authentification reussie"
+                                        },
+                                        "access_token": {
+                                            "type": "string",
+                                            "example": "1|abcdef123456..."
+                                        },
+                                        "token_type": {
+                                            "type": "string",
+                                            "example": "Bearer"
+                                        },
+                                        "user": {
+                                            "type": "object"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Identifiants invalides"
+                    }
+                }
+            }
+        },
+        "/api/login-company": {
+            "post": {
+                "tags": [
+                    "Authentification"
+                ],
+                "summary": "Connexion d'une entreprise via NIU",
+                "description": "Authentifie ou crée une entreprise avec son NIU et génère un token.",
+                "operationId": "loginCompany",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "niu"
+                                ],
+                                "properties": {
+                                    "niu": {
+                                        "description": "Numéro d'Identifiant Unique",
+                                        "type": "string",
+                                        "example": "M0123456789"
+                                    },
+                                    "name": {
+                                        "description": "Raison sociale (optionnelle)",
+                                        "type": "string",
+                                        "example": "Ikarootech"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Authentification réussie",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Authentification réussie"
+                                        },
+                                        "access_token": {
+                                            "type": "string",
+                                            "example": "1|abcdef..."
+                                        },
+                                        "token_type": {
+                                            "type": "string",
+                                            "example": "Bearer"
+                                        },
+                                        "user": {
+                                            "type": "object"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/me": {
+            "get": {
+                "tags": [
+                    "Authentification"
+                ],
+                "summary": "Récupérer le profil de l'utilisateur connecté",
+                "description": "Retourne les informations de l'utilisateur actuel. Nécessite le token Bearer.",
+                "operationId": "me",
+                "responses": {
+                    "200": {
+                        "description": "Profil récupéré",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Non authentifié (Token manquant ou invalide)"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/logout": {
+            "get": {
+                "tags": [
+                    "Authentification"
+                ],
+                "summary": "Déconnexion de l'utilisateur",
+                "description": "Détruit le token actuel de l'utilisateur.",
+                "operationId": "logout",
+                "responses": {
+                    "200": {
+                        "description": "Déconnexion réussie"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/bank/dashboard-stats": {
+            "get": {
+                "tags": [
+                    "Espace Banque"
+                ],
+                "summary": "Statistiques pour le Dashboard de la Banque",
+                "description": "Retourne les KPIs, les données des modes de paiement et la tendance des encaissements.",
+                "operationId": "bankDashboardStats",
+                "parameters": [
+                    {
+                        "name": "start_date",
+                        "in": "query",
+                        "description": "Date de début (Y-m-d)",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    },
+                    {
+                        "name": "end_date",
+                        "in": "query",
+                        "description": "Date de fin (Y-m-d)",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Statistiques récupérées avec succès"
+                    },
+                    "403": {
+                        "description": "Aucune banque rattachée à cet utilisateur"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/bank/declarations": {
+            "get": {
+                "tags": [
+                    "Espace Banque"
+                ],
+                "summary": "Lister les déclarations affectées à cette banque",
+                "description": "Retourne la liste paginée des déclarations filtrées par statut, période ou référence.",
+                "operationId": "listBankDeclarations",
+                "parameters": [
+                    {
+                        "name": "reference",
+                        "in": "query",
+                        "description": "Référence de la déclaration",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "status",
+                        "in": "query",
+                        "description": "Statut (ex: submited, bank_validated)",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "period",
+                        "in": "query",
+                        "description": "Période (ex: 2026-03)",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "start_date",
+                        "in": "query",
+                        "description": "Date de début (Y-m-d)",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    },
+                    {
+                        "name": "end_date",
+                        "in": "query",
+                        "description": "Date de fin (Y-m-d)",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Liste récupérée avec succès"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/bank/declarations/{id}": {
+            "get": {
+                "tags": [
+                    "Espace Banque"
+                ],
+                "summary": "Afficher les détails d'une déclaration spécifique",
+                "operationId": "showBankDeclaration",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID de la déclaration",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Détails de la déclaration"
+                    },
+                    "403": {
+                        "description": "Accès interdit"
+                    },
+                    "404": {
+                        "description": "Déclaration non trouvée"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/bank/declarations/{id}/validate": {
+            "put": {
+                "tags": [
+                    "Espace Banque"
+                ],
+                "summary": "Valider un paiement",
+                "description": "Confirmation de réception des fonds par la banque.",
+                "operationId": "validateBankPayment",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID de la déclaration",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "reference"
+                                ],
+                                "properties": {
+                                    "reference": {
+                                        "description": "Référence de la transaction bancaire",
+                                        "type": "string"
+                                    },
+                                    "order_reference": {
+                                        "description": "Référence de l'ordre de virement (si applicable)",
+                                        "type": "string"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Paiement validé avec succès"
+                    },
+                    "403": {
+                        "description": "Déclaration déjà traitée"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/bank/declarations/{id}/reject": {
+            "put": {
+                "tags": [
+                    "Espace Banque"
+                ],
+                "summary": "Rejeter un paiement",
+                "description": "Refuser une déclaration en attente.",
+                "operationId": "rejectBankPayment",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID de la déclaration",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "comment_reject"
+                                ],
+                                "properties": {
+                                    "comment_reject": {
+                                        "description": "Motif du rejet (min 5 caractères)",
+                                        "type": "string"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Paiement rejeté"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/bank/counter-deposits": {
+            "post": {
+                "tags": [
+                    "Espace Banque"
+                ],
+                "summary": "Créer un dépôt au guichet",
+                "description": "Enregistre un paiement en espèces ou ordre de virement fait physiquement à la banque.",
+                "operationId": "storeCounterDeposit",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "required": [
+                                    "company_id",
+                                    "reference",
+                                    "payment_mode",
+                                    "period",
+                                    "amount"
+                                ],
+                                "properties": {
+                                    "company_id": {
+                                        "description": "ID de l'entreprise",
+                                        "type": "integer"
+                                    },
+                                    "reference": {
+                                        "description": "Référence du reçu bancaire",
+                                        "type": "string"
+                                    },
+                                    "payment_mode": {
+                                        "type": "string",
+                                        "enum": [
+                                            "especes",
+                                            "ordre_virement"
+                                        ]
+                                    },
+                                    "order_reference": {
+                                        "description": "Référence de l'ordre si applicable",
+                                        "type": "string"
+                                    },
+                                    "period": {
+                                        "description": "Période (Y-m-d)",
+                                        "type": "string",
+                                        "format": "date"
+                                    },
+                                    "amount": {
+                                        "description": "Montant déposé",
+                                        "type": "number"
+                                    },
+                                    "proof_pdf": {
+                                        "description": "Fichier PDF justificatif",
+                                        "type": "string",
+                                        "format": "binary"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Dépôt créé avec succès"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/bank/counter-deposits/{id}": {
+            "put": {
+                "tags": [
+                    "Espace Banque"
+                ],
+                "summary": "Modifier un dépôt au guichet",
+                "description": "Met à jour un dépôt existant. Note : utiliser POST avec le paramètre _method=PUT si vous envoyez un fichier.",
+                "operationId": "updateCounterDeposit",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID de la déclaration à modifier",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "required": [
+                                    "company_id",
+                                    "reference",
+                                    "payment_mode",
+                                    "period",
+                                    "amount"
+                                ],
+                                "properties": {
+                                    "company_id": {
+                                        "type": "integer"
+                                    },
+                                    "reference": {
+                                        "type": "string"
+                                    },
+                                    "payment_mode": {
+                                        "type": "string",
+                                        "enum": [
+                                            "especes",
+                                            "ordre_virement"
+                                        ]
+                                    },
+                                    "order_reference": {
+                                        "type": "string"
+                                    },
+                                    "period": {
+                                        "type": "string",
+                                        "format": "date"
+                                    },
+                                    "amount": {
+                                        "type": "number"
+                                    },
+                                    "proof_pdf": {
+                                        "description": "Nouveau fichier PDF (optionnel)",
+                                        "type": "string",
+                                        "format": "binary"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Dépôt modifié avec succès"
+                    },
+                    "403": {
+                        "description": "Modification impossible (déjà validé CNPS)"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/bank/companies/search": {
+            "get": {
+                "tags": [
+                    "Espace Banque"
+                ],
+                "summary": "Rechercher une entreprise par NIU",
+                "description": "Permet à la banque de retrouver les informations d'une entreprise lors d'un dépôt au guichet.",
+                "operationId": "searchCompanyByNiuBank",
+                "parameters": [
+                    {
+                        "name": "niu",
+                        "in": "query",
+                        "description": "Numéro d'Identifiant Unique de l'entreprise",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Entreprise trouvée"
+                    },
+                    "404": {
+                        "description": "Aucune entreprise trouvée"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/cnps/declarations": {
+            "get": {
+                "tags": [
+                    "Espace CNPS"
+                ],
+                "summary": "Voir et filtrer TOUTES les déclarations",
+                "description": "Tableau de bord super-admin pour la CNPS avec recherche et filtres avancés.",
+                "operationId": "cnpsListDeclarations",
+                "parameters": [
+                    {
+                        "name": "status",
+                        "in": "query",
+                        "description": "Filtrer par statut",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "bank_id",
+                        "in": "query",
+                        "description": "ID de la banque",
+                        "required": false,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "payment_mode",
+                        "in": "query",
+                        "description": "Mode de paiement",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "in": "query",
+                        "description": "Recherche par référence ou NIU",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "start_date",
+                        "in": "query",
+                        "description": "Date de début (Y-m-d)",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    },
+                    {
+                        "name": "end_date",
+                        "in": "query",
+                        "description": "Date de fin (Y-m-d)",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Liste des déclarations"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/cnps/declarations/{id}/reconcile": {
+            "put": {
+                "tags": [
+                    "Espace CNPS"
+                ],
+                "summary": "Rapprochement du paiement",
+                "description": "La CNPS valide définitivement la déclaration.",
+                "operationId": "reconcilePayment",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID de la déclaration",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Paiement rapproché avec succès"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/cnps/declarations/{id}/reject": {
+            "put": {
+                "tags": [
+                    "Espace CNPS"
+                ],
+                "summary": "Rejeter un paiement",
+                "description": "La CNPS signale un problème (faux PDF, montant erroné, etc.).",
+                "operationId": "cnpsRejectPayment",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID de la déclaration",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "comment_reject"
+                                ],
+                                "properties": {
+                                    "comment_reject": {
+                                        "description": "Motif du rejet (min 5 caractères)",
+                                        "type": "string"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Déclaration rejetée"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/cnps/statistics": {
+            "get": {
+                "tags": [
+                    "Espace CNPS"
+                ],
+                "summary": "Données pour les graphiques React",
+                "description": "Fournit les KPIs et les statistiques des banques/modes de paiement.",
+                "operationId": "cnpsStatistics",
+                "parameters": [
+                    {
+                        "name": "start_date",
+                        "in": "query",
+                        "description": "Date de début",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    },
+                    {
+                        "name": "end_date",
+                        "in": "query",
+                        "description": "Date de fin",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Statistiques récupérées"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/cnps/banks": {
+            "get": {
+                "tags": [
+                    "Espace CNPS"
+                ],
+                "summary": "Lister toutes les banques",
+                "operationId": "listBanks",
+                "responses": {
+                    "200": {
+                        "description": "Liste des banques"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "Espace CNPS"
+                ],
+                "summary": "Créer un nouveau compte Banque",
+                "operationId": "storeBank",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "email",
+                                    "password",
+                                    "bank_code",
+                                    "bank_name"
+                                ],
+                                "properties": {
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email"
+                                    },
+                                    "password": {
+                                        "type": "string",
+                                        "format": "password",
+                                        "minLength": 6
+                                    },
+                                    "bank_code": {
+                                        "description": "Code de la banque",
+                                        "type": "string"
+                                    },
+                                    "bank_name": {
+                                        "description": "Nom de la banque",
+                                        "type": "string"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Compte bancaire créé avec succès"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/cnps/agents": {
+            "get": {
+                "tags": [
+                    "Espace CNPS"
+                ],
+                "summary": "Lister tous les agents CNPS du système",
+                "operationId": "listCnpsAgents",
+                "responses": {
+                    "200": {
+                        "description": "Liste des agents CNPS"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "Espace CNPS"
+                ],
+                "summary": "Créer un nouvel Agent CNPS (Collègue)",
+                "description": "====================================================\nGESTION DES PROFILS : AGENTS CNPS\n====================================================",
+                "operationId": "storeCnpsAgent",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "email",
+                                    "password",
+                                    "matricule",
+                                    "full_name"
+                                ],
+                                "properties": {
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email"
+                                    },
+                                    "password": {
+                                        "type": "string",
+                                        "format": "password",
+                                        "minLength": 6
+                                    },
+                                    "matricule": {
+                                        "type": "string"
+                                    },
+                                    "full_name": {
+                                        "type": "string"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Agent CNPS créé avec succès"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/cnps/reports/declarations/pdf": {
+            "get": {
+                "tags": [
+                    "Espace CNPS"
+                ],
+                "summary": "Exporter le rapport PDF",
+                "description": "Génère un PDF basé sur les filtres fournis.",
+                "operationId": "exportPdf",
+                "parameters": [
+                    {
+                        "name": "status",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "bank_id",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "payment_mode",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "start_date",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    },
+                    {
+                        "name": "end_date",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Fichier PDF généré",
+                        "content": {
+                            "application/pdf": {}
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/cnps/declarations/{id}/receipt": {
+            "post": {
+                "tags": [
+                    "Espace CNPS"
+                ],
+                "summary": "Uploader la quittance officielle",
+                "description": "Upload de la quittance PDF après le rapprochement.",
+                "operationId": "uploadReceipt",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID de la déclaration",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "required": [
+                                    "receipt_pdf"
+                                ],
+                                "properties": {
+                                    "receipt_pdf": {
+                                        "description": "Le fichier PDF de la quittance",
+                                        "type": "string",
+                                        "format": "binary"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Quittance uploadée avec succès"
+                    },
+                    "403": {
+                        "description": "Paiement non rapproché"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/cnps/agents/{id}/toggle-admin": {
+            "patch": {
+                "tags": [
+                    "Espace CNPS"
+                ],
+                "summary": "Modifier les droits d'administration",
+                "description": "Inverse le statut administrateur d'un agent CNPS.",
+                "operationId": "toggleAdminStatus",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID de l'agent",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Statut mis à jour"
+                    },
+                    "403": {
+                        "description": "Opération refusée"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/company/declarations": {
+            "get": {
+                "tags": [
+                    "Espace Entreprise"
+                ],
+                "summary": "Lister l'historique des déclarations de l'entreprise",
+                "description": "Retourne les déclarations de l'entreprise connectée avec possibilités de filtres.",
+                "operationId": "companyListDeclarations",
+                "parameters": [
+                    {
+                        "name": "bank_id",
+                        "in": "query",
+                        "description": "ID de la banque",
+                        "required": false,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "reference",
+                        "in": "query",
+                        "description": "Référence de la transaction",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "mobile_reference",
+                        "in": "query",
+                        "description": "Référence Mobile Money",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "period",
+                        "in": "query",
+                        "description": "Période (ex: 2026-03)",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    },
+                    {
+                        "name": "start_date",
+                        "in": "query",
+                        "description": "Date de début",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    },
+                    {
+                        "name": "end_date",
+                        "in": "query",
+                        "description": "Date de fin",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Historique récupéré avec succès"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "Espace Entreprise"
+                ],
+                "summary": "Initier une nouvelle déclaration",
+                "description": "Crée une déclaration et envoie la preuve de paiement (PDF).",
+                "operationId": "InitiateDeclaration",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "required": [
+                                    "reference",
+                                    "period",
+                                    "amount",
+                                    "payment_mode"
+                                ],
+                                "properties": {
+                                    "bank_id": {
+                                        "description": "ID de la banque (requis sauf pour MoMo)",
+                                        "type": "integer"
+                                    },
+                                    "reference": {
+                                        "description": "Référence du paiement",
+                                        "type": "string"
+                                    },
+                                    "mobile_reference": {
+                                        "description": "Référence transaction MoMo",
+                                        "type": "string"
+                                    },
+                                    "period": {
+                                        "description": "Période concernée",
+                                        "type": "string",
+                                        "format": "date"
+                                    },
+                                    "amount": {
+                                        "description": "Montant payé",
+                                        "type": "number"
+                                    },
+                                    "payment_mode": {
+                                        "type": "string",
+                                        "enum": [
+                                            "virement",
+                                            "especes",
+                                            "ordre_virement",
+                                            "mobile_money",
+                                            "orange_money"
+                                        ]
+                                    },
+                                    "proof_pdf": {
+                                        "description": "Preuve de paiement (PDF)",
+                                        "type": "string",
+                                        "format": "binary"
+                                    },
+                                    "status": {
+                                        "description": "Statut initial (submited par défaut)",
+                                        "type": "string"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Paiement initié avec succès"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/company/declarations/{id}": {
+            "put": {
+                "tags": [
+                    "Espace Entreprise"
+                ],
+                "summary": "Modifier une déclaration",
+                "description": "Corriger une déclaration (généralement après un rejet). Utilisez POST avec _method=PUT si vous envoyez un fichier PDF.",
+                "operationId": "EditDeclaration",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID de la déclaration",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "required": [
+                                    "reference",
+                                    "amount",
+                                    "payment_mode"
+                                ],
+                                "properties": {
+                                    "bank_id": {
+                                        "type": "integer"
+                                    },
+                                    "reference": {
+                                        "type": "string"
+                                    },
+                                    "mobile_reference": {
+                                        "type": "string"
+                                    },
+                                    "amount": {
+                                        "type": "number"
+                                    },
+                                    "payment_mode": {
+                                        "type": "string",
+                                        "enum": [
+                                            "virement",
+                                            "especes",
+                                            "ordre_virement",
+                                            "mobile_money",
+                                            "orange_money"
+                                        ]
+                                    },
+                                    "proof_pdf": {
+                                        "description": "Nouveau fichier PDF (optionnel)",
+                                        "type": "string",
+                                        "format": "binary"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Déclaration corrigée avec succès"
+                    },
+                    "403": {
+                        "description": "Impossible de modifier une transaction validée"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/company/declarations/{id}/status": {
+            "patch": {
+                "tags": [
+                    "Espace Entreprise"
+                ],
+                "summary": "Changer directement le statut (Utilitaire)",
+                "description": "4. (Utilitaire) Changer directement le statut",
+                "operationId": "changeDeclarationStatus",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID de la déclaration",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "status"
+                                ],
+                                "properties": {
+                                    "status": {
+                                        "type": "string",
+                                        "enum": [
+                                            "initiated",
+                                            "submited",
+                                            "bank_validated",
+                                            "cnps_validated",
+                                            "rejected"
+                                        ]
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Statut mis à jour"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/company/declarations/{id}/download-receipt": {
+            "get": {
+                "tags": [
+                    "Espace Entreprise"
+                ],
+                "summary": "Télécharger la quittance officielle de la CNPS",
+                "description": "Télécharge le fichier PDF de la quittance si elle a été générée.",
+                "operationId": "downloadReceipt",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID de la déclaration",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Fichier de la quittance",
+                        "content": {
+                            "application/pdf": {}
+                        }
+                    },
+                    "403": {
+                        "description": "Accès non autorisé"
+                    },
+                    "404": {
+                        "description": "Quittance introuvable"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/declarations/{id}": {
+            "get": {
+                "tags": [
+                    "Déclarations (Général)"
+                ],
+                "summary": "Détail d'une cotisation spécifique",
+                "description": "Endpoint général permettant à une banque ou une entreprise de voir les détails de SA cotisation.",
+                "operationId": "showDeclarationGeneral",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID de la déclaration",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Détails récupérés avec succès"
+                    },
+                    "403": {
+                        "description": "Accès non autorisé"
+                    },
+                    "404": {
+                        "description": "Cotisation introuvable"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/declarations/{id}/download-proof": {
+            "get": {
+                "tags": [
+                    "Déclarations (Général)"
+                ],
+                "summary": "Télécharger la preuve de paiement (PDF)",
+                "description": "Permet de télécharger le justificatif de paiement uploadé par l'entreprise.",
+                "operationId": "downloadProofGeneral",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID de la déclaration",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Fichier de la preuve (PDF)",
+                        "content": {
+                            "application/pdf": {}
+                        }
+                    },
+                    "403": {
+                        "description": "Accès non autorisé"
+                    },
+                    "404": {
+                        "description": "Cotisation ou fichier introuvable"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/notifications/unread": {
+            "get": {
+                "tags": [
+                    "Notifications"
+                ],
+                "summary": "Récupérer les notifications non lues",
+                "description": "Retourne la liste complète des notifications non lues de l'utilisateur connecté.",
+                "operationId": "getUnreadNotifications",
+                "responses": {
+                    "200": {
+                        "description": "Liste des notifications non lues"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/notifications/all": {
+            "get": {
+                "tags": [
+                    "Notifications"
+                ],
+                "summary": "Récupérer toutes les notifications",
+                "description": "Retourne la liste paginée de toutes les notifications (lues et non lues) de l'utilisateur connecté.",
+                "operationId": "getAllNotifications",
+                "responses": {
+                    "200": {
+                        "description": "Liste paginée des notifications"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/notifications/mark-as-read/{id}": {
+            "put": {
+                "tags": [
+                    "Notifications"
+                ],
+                "summary": "Marquer une notification comme lue",
+                "description": "Change le statut d'une notification spécifique en \"lue\".",
+                "operationId": "markNotificationAsRead",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID de la notification (UUID)",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Notification marquée comme lue"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/notifications/mark-all-as-read": {
+            "post": {
+                "tags": [
+                    "Notifications"
+                ],
+                "summary": "Marquer toutes les notifications comme lues",
+                "description": "Passe toutes les notifications non lues de l'utilisateur au statut \"lue\" en une seule action.",
+                "operationId": "markAllNotificationsAsRead",
+                "responses": {
+                    "200": {
+                        "description": "Toutes les notifications ont été marquées comme lues"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        }
+    },
+    "components": {
+        "securitySchemes": {
+            "bearerAuth": {
+                "type": "http",
+                "name": "bearerAuth",
+                "in": "header",
+                "bearerFormat": "JWT",
+                "scheme": "bearer"
+            }
+        }
+    },
+    "tags": [
+        {
+            "name": "Authentification",
+            "description": "Authentification"
+        },
+        {
+            "name": "Espace Banque",
+            "description": "Espace Banque"
+        },
+        {
+            "name": "Espace CNPS",
+            "description": "Espace CNPS"
+        },
+        {
+            "name": "Espace Entreprise",
+            "description": "Espace Entreprise"
+        },
+        {
+            "name": "Déclarations (Général)",
+            "description": "Déclarations (Général)"
+        },
+        {
+            "name": "Notifications",
+            "description": "Notifications"
+        }
+    ]
+}
