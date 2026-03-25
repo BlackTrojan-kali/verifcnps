@@ -15,8 +15,8 @@ class AuthController extends Controller
     #[OA\Post(
         path: '/api/login',
         operationId: 'login',
-        summary: 'Connecter un utilisateur (Banque ou CNPS)',
-        description: 'Permet à un agent CNPS ou à une banque de se connecter et de récupérer un token Sanctum.',
+        summary: 'Connecter un utilisateur (Banque, CNPS ou Superviseur)',
+        description: 'Permet à un agent CNPS, une banque ou un superviseur de se connecter et de récupérer un token Sanctum.',
         tags: ['Authentification']
     )]
     #[OA\RequestBody(
@@ -63,12 +63,16 @@ class AuthController extends Controller
             return response()->json("les entreprises doivent se connecter via l'api");
         }
 
+        // Chargement des relations selon le rôle de l'utilisateur
         if($user->role === "bank"){
             $user->load("bank");
         }
         if($user->role === "cnps"){
             $user->load("cnps");
         }        
+        if($user->role === "supervisor"){
+            $user->load("supervisor");
+        }
 
         $token = $user->createToken("verif_cnps_token")->plainTextToken ;
 
@@ -161,13 +165,16 @@ class AuthController extends Controller
     public function me(){
         $user = Auth::user();
         if($user->role === "company"){
-            // Code existant
+            $user->load("company");
         }
         if($user->role === "bank"){
             $user->load("bank");
         }
         if($user->role === "cnps"){
             $user->load("cnps");
+        }
+        if($user->role === "supervisor"){
+            $user->load("supervisor");
         }
         return response()->json($user);
     }

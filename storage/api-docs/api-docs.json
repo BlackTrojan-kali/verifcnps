@@ -839,77 +839,6 @@
                 ]
             }
         },
-        "/api/cnps/banks": {
-            "get": {
-                "tags": [
-                    "Espace CNPS"
-                ],
-                "summary": "Lister toutes les banques",
-                "operationId": "listBanks",
-                "responses": {
-                    "200": {
-                        "description": "Liste des banques"
-                    }
-                },
-                "security": [
-                    {
-                        "bearerAuth": []
-                    }
-                ]
-            },
-            "post": {
-                "tags": [
-                    "Espace CNPS"
-                ],
-                "summary": "Créer un nouveau compte Banque",
-                "operationId": "storeBank",
-                "requestBody": {
-                    "required": true,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "required": [
-                                    "email",
-                                    "password",
-                                    "bank_code",
-                                    "bank_name"
-                                ],
-                                "properties": {
-                                    "email": {
-                                        "type": "string",
-                                        "format": "email"
-                                    },
-                                    "password": {
-                                        "type": "string",
-                                        "format": "password",
-                                        "minLength": 6
-                                    },
-                                    "bank_code": {
-                                        "description": "Code de la banque",
-                                        "type": "string"
-                                    },
-                                    "bank_name": {
-                                        "description": "Nom de la banque",
-                                        "type": "string"
-                                    }
-                                },
-                                "type": "object"
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "201": {
-                        "description": "Compte bancaire créé avec succès"
-                    }
-                },
-                "security": [
-                    {
-                        "bearerAuth": []
-                    }
-                ]
-            }
-        },
         "/api/cnps/agents": {
             "get": {
                 "tags": [
@@ -933,7 +862,7 @@
                     "Espace CNPS"
                 ],
                 "summary": "Créer un nouvel Agent CNPS (Collègue)",
-                "description": "====================================================\nGESTION DES PROFILS : AGENTS CNPS\n====================================================",
+                "description": "====================================================\nGESTION DES PROFILS : AGENTS CNPS UNIQUEMENT\n====================================================",
                 "operationId": "storeCnpsAgent",
                 "requestBody": {
                     "required": true,
@@ -971,6 +900,92 @@
                 "responses": {
                     "201": {
                         "description": "Agent CNPS créé avec succès"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/cnps/agents/{id}/password": {
+            "patch": {
+                "tags": [
+                    "Espace CNPS"
+                ],
+                "summary": "Modifier le mot de passe d'un agent CNPS",
+                "description": "Permet à un administrateur CNPS de réinitialiser le mot de passe d'un collègue.",
+                "operationId": "updateAgentPassword",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID de l'agent CNPS",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "password"
+                                ],
+                                "properties": {
+                                    "password": {
+                                        "description": "Le nouveau mot de passe",
+                                        "type": "string",
+                                        "format": "password",
+                                        "minLength": 6
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Mot de passe mis à jour avec succès"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/cnps/agents/{id}/toggle-admin": {
+            "patch": {
+                "tags": [
+                    "Espace CNPS"
+                ],
+                "summary": "Modifier les droits d'administration",
+                "description": "Inverse le statut administrateur d'un agent CNPS.",
+                "operationId": "toggleAdminStatus",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID de l'agent",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Statut mis à jour"
+                    },
+                    "403": {
+                        "description": "Opération refusée"
                     }
                 },
                 "security": [
@@ -1092,40 +1107,6 @@
                     },
                     "403": {
                         "description": "Paiement non rapproché"
-                    }
-                },
-                "security": [
-                    {
-                        "bearerAuth": []
-                    }
-                ]
-            }
-        },
-        "/api/cnps/agents/{id}/toggle-admin": {
-            "patch": {
-                "tags": [
-                    "Espace CNPS"
-                ],
-                "summary": "Modifier les droits d'administration",
-                "description": "Inverse le statut administrateur d'un agent CNPS.",
-                "operationId": "toggleAdminStatus",
-                "parameters": [
-                    {
-                        "name": "id",
-                        "in": "path",
-                        "description": "ID de l'agent",
-                        "required": true,
-                        "schema": {
-                            "type": "integer"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Statut mis à jour"
-                    },
-                    "403": {
-                        "description": "Opération refusée"
                     }
                 },
                 "security": [

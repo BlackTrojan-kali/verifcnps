@@ -58,4 +58,8 @@ class User extends Authenticatable
     public function cnps(){
         return $this->hasOne(CnpsAgent::class);
     }
+    public function supervisor()
+    {
+        return $this->hasOne(Supervisor::class);
+    }
 }

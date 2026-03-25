@@ -15,6 +15,7 @@ class Bank extends Model
         "user_id",
         "bank_name",
         "address",
+        "is_admin", // <-- À rajouter ici
     ];
 
     public function user(){

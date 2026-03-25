@@ -20,8 +20,6 @@ use OpenApi\Attributes as OA;
 
 class CnpsController extends Controller
 {
-    //
- 
     #[OA\Get(
         path: '/api/cnps/declarations',
         operationId: 'cnpsListDeclarations',
@@ -173,7 +171,7 @@ class CnpsController extends Controller
 
         // 2. Application du filtre de date (Si l'utilisateur a choisi une période)
         if ($request->filled(['start_date', 'end_date'])) {
-            $start = Carbon ::parse($request->start_date)->startOfDay();
+            $start = Carbon::parse($request->start_date)->startOfDay();
             $end = Carbon::parse($request->end_date)->endOfDay();
             $query->whereBetween('created_at', [$start, $end]);
         }
@@ -267,73 +265,9 @@ class CnpsController extends Controller
         ]);
     }
 
-    #[OA\Post(
-        path: '/api/cnps/banks',
-        operationId: 'storeBank',
-        summary: 'Créer un nouveau compte Banque',
-        tags: ['Espace CNPS'],
-        security: [['bearerAuth' => []]]
-    )]
-    #[OA\RequestBody(
-        required: true,
-        content: new OA\JsonContent(
-            required: ['email', 'password', 'bank_code', 'bank_name'],
-            properties: [
-                new OA\Property(property: 'email', type: 'string', format: 'email'),
-                new OA\Property(property: 'password', type: 'string', format: 'password', minLength: 6),
-                new OA\Property(property: 'bank_code', type: 'string', description: 'Code de la banque'),
-                new OA\Property(property: 'bank_name', type: 'string', description: 'Nom de la banque')
-            ]
-        )
-    )]
-    #[OA\Response(response: 201, description: 'Compte bancaire créé avec succès')]
-    public function storeBank(Request $request)
-    {
-        $request->validate([
-            'email' => 'required|email|unique:users,email',
-            'password' => 'required|string|min:6',
-            'bank_code' => 'required|string|unique:banks,bank_code',
-            'bank_name' => 'required|string',
-        ]);
-
-        // 1. Création de l'utilisateur de connexion
-        $user = User::create([
-            'email' => $request->email,
-            'password' => Hash::make($request->password), 
-            'role' => 'bank'
-        ]);
-
-        // 2. Création du profil métier lié
-        $bank = Bank::create([
-            'user_id' => $user->id,
-            'bank_code' => $request->bank_code,
-            'bank_name' => $request->bank_name,
-        ]);
-
-        return response()->json([
-            'message' => 'Compte bancaire créé avec succès.',
-            'bank' => $bank->load('user') 
-        ], 201);
-    }
-
-    #[OA\Get(
-        path: '/api/cnps/banks',
-        operationId: 'listBanks',
-        summary: 'Lister toutes les banques',
-        tags: ['Espace CNPS'],
-        security: [['bearerAuth' => []]]
-    )]
-    #[OA\Response(response: 200, description: 'Liste des banques')]
-    public function listBanks()
-    {
-        $banks = Bank::with('user')->orderBy('bank_name', 'asc')->get();
-
-        return response()->json($banks);
-    }
-
     /**
      * ====================================================
-     * GESTION DES PROFILS : AGENTS CNPS
+     * GESTION DES PROFILS : AGENTS CNPS UNIQUEMENT
      * ====================================================
      */
 
@@ -362,7 +296,6 @@ class CnpsController extends Controller
        $request->validate([
             'email' => 'required|email|unique:users,email',
             'password' => 'required|string|min:6',
-            // --- LA CORRECTION EST ICI : cnps_agents au lieu de cnps ---
             'matricule' => 'required|string|unique:cnps_agents,matricule', 
             'full_name' => 'required|string',
         ]);
@@ -399,6 +332,85 @@ class CnpsController extends Controller
 
         return response()->json($agents);
     }
+
+    #[OA\Patch(
+        path: '/api/cnps/agents/{id}/password',
+        operationId: 'updateAgentPassword',
+        summary: 'Modifier le mot de passe d\'un agent CNPS',
+        description: 'Permet à un administrateur CNPS de réinitialiser le mot de passe d\'un collègue.',
+        tags: ['Espace CNPS'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\Parameter(name: 'id', in: 'path', required: true, description: 'ID de l\'agent CNPS', schema: new OA\Schema(type: 'integer'))]
+    #[OA\RequestBody(
+        required: true,
+        content: new OA\JsonContent(
+            required: ['password'],
+            properties: [
+                new OA\Property(property: 'password', type: 'string', format: 'password', minLength: 6, description: 'Le nouveau mot de passe')
+            ]
+        )
+    )]
+    #[OA\Response(response: 200, description: 'Mot de passe mis à jour avec succès')]
+    public function updateAgentPassword(Request $request, $id)
+    {
+        $request->validate([
+            'password' => 'required|string|min:6'
+        ]);
+
+        // On récupère l'agent et on charge son compte utilisateur associé
+        $agent = CnpsAgent::with('user')->findOrFail($id);
+        
+        // On met à jour le mot de passe dans la table users
+        $agent->user->update([
+            'password' => Hash::make($request->password)
+        ]);
+
+        return response()->json([
+            'message' => 'Le mot de passe de l\'agent a été mis à jour avec succès.',
+            'agent' => $agent
+        ], 200);
+    }
+
+    #[OA\Patch(
+        path: '/api/cnps/agents/{id}/toggle-admin',
+        operationId: 'toggleAdminStatus',
+        summary: 'Modifier les droits d\'administration',
+        description: 'Inverse le statut administrateur d\'un agent CNPS.',
+        tags: ['Espace CNPS'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\Parameter(name: 'id', in: 'path', required: true, description: 'ID de l\'agent', schema: new OA\Schema(type: 'integer'))]
+    #[OA\Response(response: 200, description: 'Statut mis à jour')]
+    #[OA\Response(response: 403, description: 'Opération refusée')]
+    public function toggleAdminStatus($id)
+    {
+        $agent = CnpsAgent::findOrFail($id);
+
+        // Sécurité : on empêche l'utilisateur connecté de modifier son propre statut
+        if ($agent->user_id === Auth::user()->id) {
+            return response()->json([
+                'message' => 'Opération refusée : vous ne pouvez pas modifier vos propres droits d\'administration.'
+            ], 403);
+        }
+
+        // On inverse le statut (si true devient false, si false devient true)
+        $agent->is_admin = !$agent->is_admin;
+        $agent->save();
+
+        $roleText = $agent->is_admin ? 'Administrateur' : 'Agent simple';
+
+        return response()->json([
+            'message' => "Le statut a été mis à jour avec succès ($roleText).",
+            'agent' => $agent
+        ], 200);
+    }
+
+    /**
+     * ====================================================
+     * GESTION DES DOCUMENTS ET RAPPORTS
+     * ====================================================
+     */
 
     #[OA\Get(
         path: '/api/cnps/reports/declarations/pdf',
@@ -445,7 +457,8 @@ class CnpsController extends Controller
         $totalAmount = $declarations->sum('amount');
         $totalCount = $declarations->count();
         $dateGeneration = now()->format('d/m/Y à H:i');
-// On charge la vue Blade avec les données
+
+        // On charge la vue Blade avec les données
         $pdf = Pdf::loadView('declarations_pdf', compact(
             'declarations', 
             'totalAmount', 
@@ -524,39 +537,5 @@ class CnpsController extends Controller
             'message' => 'Quittance uploadée et transmise à l\'entreprise avec succès.',
             'declaration' => $declaration
         ]);
-    }
-
-    #[OA\Patch(
-        path: '/api/cnps/agents/{id}/toggle-admin',
-        operationId: 'toggleAdminStatus',
-        summary: 'Modifier les droits d\'administration',
-        description: 'Inverse le statut administrateur d\'un agent CNPS.',
-        tags: ['Espace CNPS'],
-        security: [['bearerAuth' => []]]
-    )]
-    #[OA\Parameter(name: 'id', in: 'path', required: true, description: 'ID de l\'agent', schema: new OA\Schema(type: 'integer'))]
-    #[OA\Response(response: 200, description: 'Statut mis à jour')]
-    #[OA\Response(response: 403, description: 'Opération refusée')]
-    public function toggleAdminStatus($id)
-    {
-        $agent = CnpsAgent::findOrFail($id);
-
-        // Sécurité : on empêche l'utilisateur connecté de modifier son propre statut
-        if ($agent->user_id === Auth::user()->id) {
-            return response()->json([
-                'message' => 'Opération refusée : vous ne pouvez pas modifier vos propres droits d\'administration.'
-            ], 403);
-        }
-
-        // On inverse le statut (si true devient false, si false devient true)
-        $agent->is_admin = !$agent->is_admin;
-        $agent->save();
-
-        $roleText = $agent->is_admin ? 'Administrateur' : 'Agent simple';
-
-        return response()->json([
-            'message' => "Le statut a été mis à jour avec succès ($roleText).",
-            'agent' => $agent
-        ], 200);
     }
 }

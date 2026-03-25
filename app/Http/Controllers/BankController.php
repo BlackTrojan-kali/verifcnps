@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Bank;
 use App\Models\Company;
 use App\Models\Declaration;
 use App\Models\User;
@@ -10,6 +11,7 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash; // Ajouté pour le hachage des mots de passe
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
 
@@ -499,5 +501,202 @@ class BankController extends Controller
         }
         
         return response()->json(['company' => $company]);
+    }
+
+    /**
+     * ====================================================
+     * GESTION DES AGENTS (GUICHETIERS/ADMINS) DE LA BANQUE
+     * ====================================================
+     */
+
+    #[OA\Post(
+        path: '/api/bank/agents',
+        operationId: 'storeBankAgentLocal',
+        summary: 'Créer un nouvel agent/administrateur pour la banque',
+        description: 'Permet à une banque de créer un compte pour un autre employé au sein de sa propre agence.',
+        tags: ['Espace Banque'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\RequestBody(
+        required: true,
+        content: new OA\JsonContent(
+            required: ['email', 'password', 'bank_code'],
+            properties: [
+                new OA\Property(property: 'email', type: 'string', format: 'email', description: 'Email de connexion'),
+                new OA\Property(property: 'password', type: 'string', format: 'password', minLength: 6),
+                new OA\Property(property: 'bank_code', type: 'string', description: 'Matricule/Code unique pour cet agent (ex: UBA-002)'),
+                new OA\Property(property: 'is_admin', type: 'boolean', description: 'Le définir comme chef d\'agence')
+            ]
+        )
+    )]
+    #[OA\Response(response: 201, description: 'Agent créé avec succès')]
+    public function storeBankAgent(Request $request)
+    {
+        // 1. On récupère le profil de la banque actuellement connectée
+        $currentBank = Auth::user()->bank;
+
+        // 2. Validation
+        $request->validate([
+            'email' => 'required|email|unique:users,email',
+            'password' => 'required|string|min:6',
+            'bank_code' => 'required|string|unique:banks,bank_code', // Doit être unique dans la table
+            'is_admin' => 'boolean'
+        ]);
+
+        // 3. Création de l'utilisateur de connexion
+        $user = User::create([
+            'email' => $request->email,
+            'password' => Hash::make($request->password),
+            'role' => 'bank'
+        ]);
+
+        // 4. Création du profil de l'agent.
+        // Il hérite automatiquement du nom et de l'adresse de la banque créatrice.
+        $agent = \App\Models\Bank::create([
+            'user_id' => $user->id,
+            'bank_code' => $request->bank_code,
+            'bank_name' => $currentBank->bank_name,
+            'address' => $currentBank->address,
+            'is_admin' => $request->is_admin ?? false,
+        ]);
+
+        return response()->json([
+            'message' => 'L\'agent a été créé avec succès et rattaché à votre banque.',
+            'agent' => $agent->load('user')
+        ], 201);
+    }
+
+    #[OA\Patch(
+        path: '/api/bank/agents/{id}/password',
+        operationId: 'updateBankAgentPasswordLocal',
+        summary: 'Modifier le mot de passe d\'un agent de la banque',
+        description: 'Permet de réinitialiser le mot de passe d\'un employé spécifique de la même banque.',
+        tags: ['Espace Banque'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\Parameter(name: 'id', in: 'path', required: true, description: 'ID du profil Bank de l\'agent ciblé', schema: new OA\Schema(type: 'integer'))]
+    #[OA\RequestBody(
+        required: true,
+        content: new OA\JsonContent(
+            required: ['password'],
+            properties: [
+                new OA\Property(property: 'password', type: 'string', format: 'password', minLength: 6, description: 'Nouveau mot de passe')
+            ]
+        )
+    )]
+    #[OA\Response(response: 200, description: 'Mot de passe mis à jour avec succès')]
+    #[OA\Response(response: 403, description: 'Non autorisé sur un agent d\'une autre banque')]
+    public function updateBankAgentPassword(Request $request, $id)
+    {
+        $currentBank = Auth::user()->bank;
+
+        $request->validate([
+            'password' => 'required|string|min:6'
+        ]);
+
+        // On cherche l'agent ciblé
+        $targetAgent = \App\Models\Bank::with('user')->findOrFail($id);
+
+        // Sécurité : On s'assure que l'agent ciblé appartient bien à la MÊME banque
+        // On vérifie cela grâce au nom de la banque qui a été hérité lors de la création
+        if ($targetAgent->bank_name !== $currentBank->bank_name) {
+            return response()->json([
+                'message' => 'Opération refusée : cet agent n\'appartient pas à votre établissement bancaire.'
+            ], 403);
+        }
+
+        // Mise à jour
+        $targetAgent->user->update([
+            'password' => Hash::make($request->password)
+        ]);
+
+        return response()->json([
+            'message' => 'Le mot de passe de l\'agent a été réinitialisé avec succès.',
+            'agent' => $targetAgent
+        ], 200);
+    }
+    #[OA\Get(
+        path: '/api/supervisor/banks',
+        operationId: 'supervisorListBanks',
+        summary: 'Lister toutes les agences bancaires',
+        description: 'Retourne la liste des banques avec leurs utilisateurs (chefs d\'agence) pour le Superviseur.',
+        tags: ['Espace Superviseur'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\Response(response: 200, description: 'Liste récupérée avec succès')]
+    public function listBanks()
+    {
+        // On récupère toutes les banques avec les infos de connexion associées
+        // On peut filtrer pour ne prendre que les "chefs d'agence" (is_admin = true)
+        // si vous voulez éviter de voir tous les simples guichetiers.
+        $banks = Bank::with('user')
+                     ->where('is_admin', true) 
+                     ->orderBy('bank_name', 'asc')
+                     ->get();
+
+        return response()->json([
+            'banks' => $banks
+        ]);
+    }
+    
+
+    #[OA\Get(
+        path: '/api/bank/agents',
+        operationId: 'listBankAgentsLocal',
+        summary: 'Lister les guichetiers de l\'agence',
+        description: 'Retourne la liste des agents appartenant à la même banque que l\'utilisateur connecté.',
+        tags: ['Espace Banque'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\Response(response: 200, description: 'Liste des agents récupérée')]
+    public function listAgents(Request $request)
+    {
+        $currentBank = Auth::user()->bank;
+
+        // On récupère tous les profils "Bank" qui ont le même nom de banque
+        $agents = \App\Models\Bank::with('user')
+            ->where('bank_name', $currentBank->bank_name)
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return response()->json([
+            'agents' => $agents
+        ]);
+    }
+
+    #[OA\Patch(
+        path: '/api/bank/agents/{id}/toggle-admin',
+        operationId: 'toggleBankAgentAdmin',
+        summary: 'Modifier les droits d\'un guichetier',
+        description: 'Permet au chef d\'agence de promouvoir ou révoquer les droits d\'administration d\'un collègue.',
+        tags: ['Espace Banque'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\Parameter(name: 'id', in: 'path', required: true, description: 'ID du profil Bank', schema: new OA\Schema(type: 'integer'))]
+    #[OA\Response(response: 200, description: 'Statut mis à jour')]
+    #[OA\Response(response: 403, description: 'Action non autorisée')]
+    public function toggleAdminStatus(Request $request, $id)
+    {
+        $currentBank = Auth::user()->bank;
+        $targetAgent = \App\Models\Bank::with('user')->findOrFail($id);
+
+        // Sécurité 1 : Vérifier que l'agent cible est dans la même banque
+        if ($targetAgent->bank_name !== $currentBank->bank_name) {
+            return response()->json(['message' => 'Cet agent n\'appartient pas à votre établissement.'], 403);
+        }
+
+        // Sécurité 2 : Empêcher l'utilisateur de se retirer ses propres droits par erreur
+        if ($targetAgent->user_id === Auth::id()) {
+            return response()->json(['message' => 'Vous ne pouvez pas modifier vos propres privilèges.'], 403);
+        }
+
+        // Inversion du statut
+        $targetAgent->is_admin = !$targetAgent->is_admin;
+        $targetAgent->save();
+
+        return response()->json([
+            'message' => $targetAgent->is_admin ? 'Droits d\'administration accordés.' : 'Droits d\'administration révoqués.',
+            'agent' => $targetAgent
+        ]);
     }
 }
