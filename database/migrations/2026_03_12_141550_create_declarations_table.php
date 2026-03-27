@@ -19,7 +19,7 @@ return new class extends Migration
             // 2. Rendu nullable car un paiement MoMo ou une déclaration non finalisée n'a pas de banque
             $table->foreignId("bank_id")->nullable()->constrained()->onDelete("restrict");
             
-            $table->string("reference")->unique();
+            $table->string("reference")->unique()->nullable();
             $table->string("order_reference")->unique()->nullable();
             $table->string("mobile_reference")->nullable();
             $table->date("period");
@@ -35,14 +35,14 @@ return new class extends Migration
             // NOUVEAU : La quittance délivrée par la CNPS
             // ==========================================
             $table->string("receipt_path")->nullable();
-            
+            $table->string("account_number")->nullable();
             // 5. Ajout de l'état initial ('initiated') et de la valeur par défaut
-            $table->enum("status", ["initiated", "submited", "bank_validated", "cnps_validated", "rejected"])->default("initiated"); 
+            $table->enum("status", ["submited", "bank_validated", "cnps_validated", "rejected"])->default("initiated"); 
             
             $table->string("comment_reject")->nullable();  
             $table->timestamps();
             
-            $table->index("reference");
+            $table->index("reference")->nullable();
             $table->index("status");
         });
     }

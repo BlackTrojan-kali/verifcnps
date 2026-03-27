@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\Route;
 // ==========================================
 Route::post("/login", [AuthController::class, "login"]);
 Route::post("/login-company", [AuthController::class, "loginCompany"]);
-
+Route::get('/declarations/search/specific', [DeclarationController::class, 'findByNiuAmountPeriod']);
 Route::middleware("auth:sanctum")->group(function(){
     Route::get("/me",[AuthController::class,"me"]);
     Route::get("/logout",[AuthController::class,'logout']);
@@ -33,7 +33,7 @@ Route::middleware("auth:sanctum")->group(function(){
         Route::get('/declarations', [CompanyController::class, 'index']);
         Route::get('/declarations/{id}/download-receipt', [CompanyController::class, 'downloadReceipt']);    
         Route::post('/declarations', [CompanyController::class, 'InitiateDeclaration']);
-        
+         
        Route::put('/declarations/{id}', [CompanyController::class, 'EditDeclaration']);
         
         Route::patch('/declarations/{id}/status', [CompanyController::class, 'changeDeclarationStatus']);

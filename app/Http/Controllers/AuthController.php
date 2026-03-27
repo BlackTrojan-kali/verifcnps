@@ -24,8 +24,8 @@ class AuthController extends Controller
         content: new OA\JsonContent(
             required: ['email', 'password'],
             properties: [
-                new OA\Property(property: 'email', type: 'string', format: 'email', example: 'bank@test.com'),
-                new OA\Property(property: 'password', type: 'string', format: 'password', example: 'password123')
+                new OA\Property(property: 'email', type: 'string', format: 'email', example: 'guichet@banque.cm'),
+                new OA\Property(property: 'password', type: 'string', format: 'password', example: 'password')
             ]
         )
     )]
@@ -116,11 +116,11 @@ class AuthController extends Controller
     public function loginCompany(Request $request)
     {
         $request->validate([
-            "niu" => ["required", "string"], 
+            "neo" => ["required", "string"], 
             "name" => "string|nullable",
         ]);
 
-        $company = Company::where("niu", $request->niu)->first();
+        $company = Company::where("niu", $request->neo)->first();
         
         if (!$company) {
             $user = User::create([
@@ -129,7 +129,7 @@ class AuthController extends Controller
             
             $company = Company::create([
                 "user_id" => $user->id,
-                "niu" => $request->niu,
+                "niu" => $request->neo,
                 "raison_sociale" => $request->name ?? "À définir"
             ]);
         

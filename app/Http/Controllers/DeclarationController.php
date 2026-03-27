@@ -99,5 +99,61 @@ class DeclarationController extends Controller
 
         return Storage::disk('public')->download($declaration->proof_path, $fileName);
     }
-    
+#[OA\Get(
+        path: '/api/declarations/search/specific',
+        operationId: 'findDeclarationByNiuAmountPeriod',
+        summary: 'Rechercher la déclaration la plus récente',
+        description: 'Retrouve la déclaration la plus récente en croisant le NIU de l\'entreprise, le montant et la période.',
+        tags: ['Déclarations (Général)'],
+        security: [['bearerAuth' => []]]
+    )]
+    #[OA\Parameter(name: 'niu', in: 'query', required: true, description: 'Numéro Identifiant Unique de l\'entreprise', schema: new OA\Schema(type: 'string'))]
+    #[OA\Parameter(name: 'amount', in: 'query', required: true, description: 'Montant de la déclaration', schema: new OA\Schema(type: 'number'))]
+    #[OA\Parameter(name: 'period', in: 'query', required: true, description: 'Période (ex: YYYY-MM-DD)', schema: new OA\Schema(type: 'string', format: 'date'))]
+    #[OA\Response(response: 200, description: 'Déclaration trouvée avec succès')]
+    #[OA\Response(response: 403, description: 'Accès non autorisé')]
+    #[OA\Response(response: 404, description: 'Aucune déclaration correspondante')]
+    /**
+     * Recherche la déclaration la plus récente par NIU, montant et période.
+     */
+    public function findByNiuAmountPeriod(Request $request)
+    {
+        // 1. Validation des paramètres de recherche
+        $request->validate([
+            'niu' => 'required|string',
+            'amount' => 'required|numeric',
+            'period' => 'required|date',
+        ]);
+
+        // 2. Recherche croisée avec la relation Company (en prenant la plus récente)
+        $declaration = Declaration::with(['company', 'bank'])
+            ->whereHas('company', function ($query) use ($request) {
+                // On filtre sur la table "companies" via la relation
+                $query->where('niu', $request->niu);
+            })
+            ->where('amount', $request->amount)
+            ->whereDate('period', $request->period)
+            ->latest() // <--- AJOUT CRUCIAL : Trie par created_at décroissant
+            ->first();
+
+        // 3. Gestion du cas où rien n'est trouvé
+        if (!$declaration) {
+            return response()->json([
+                'message' => 'Aucune déclaration ne correspond à ces critères (NIU, montant, période).'
+            ], 404);
+        }
+
+        // 4. --- SÉCURITÉ ---
+        // On s'assure qu'une entreprise connectée ne cherche pas le NIU d'un concurrent
+        $user = Auth::user();
+        if ($user->role === 'company' && $declaration->company_id !== $user->company->id) {
+            return response()->json(['message' => 'Accès non autorisé à cette cotisation.'], 403);
+        }
+
+        // 5. Retour de la déclaration trouvée
+        return response()->json([
+            'message' => 'Déclaration récente trouvée avec succès.',
+            'declaration' => $declaration
+        ]);
+    }
 }

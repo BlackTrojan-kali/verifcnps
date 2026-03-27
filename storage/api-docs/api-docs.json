@@ -17,8 +17,8 @@
                 "tags": [
                     "Authentification"
                 ],
-                "summary": "Connecter un utilisateur (Banque ou CNPS)",
-                "description": "Permet à un agent CNPS ou à une banque de se connecter et de récupérer un token Sanctum.",
+                "summary": "Connecter un utilisateur (Banque, CNPS ou Superviseur)",
+                "description": "Permet à un agent CNPS, une banque ou un superviseur de se connecter et de récupérer un token Sanctum.",
                 "operationId": "login",
                 "requestBody": {
                     "required": true,
@@ -638,6 +638,188 @@
                 ]
             }
         },
+        "/api/bank/agents": {
+            "get": {
+                "tags": [
+                    "Espace Banque"
+                ],
+                "summary": "Lister les guichetiers de l'agence",
+                "description": "Retourne la liste des agents appartenant à la même banque que l'utilisateur connecté.",
+                "operationId": "listBankAgentsLocal",
+                "responses": {
+                    "200": {
+                        "description": "Liste des agents récupérée"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "Espace Banque"
+                ],
+                "summary": "Créer un nouvel agent/administrateur pour la banque",
+                "description": "Permet à une banque de créer un compte pour un autre employé au sein de sa propre agence.",
+                "operationId": "storeBankAgentLocal",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "email",
+                                    "password",
+                                    "bank_code"
+                                ],
+                                "properties": {
+                                    "email": {
+                                        "description": "Email de connexion",
+                                        "type": "string",
+                                        "format": "email"
+                                    },
+                                    "password": {
+                                        "type": "string",
+                                        "format": "password",
+                                        "minLength": 6
+                                    },
+                                    "bank_code": {
+                                        "description": "Matricule/Code unique pour cet agent (ex: UBA-002)",
+                                        "type": "string"
+                                    },
+                                    "is_admin": {
+                                        "description": "Le définir comme chef d'agence",
+                                        "type": "boolean"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Agent créé avec succès"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/bank/agents/{id}/password": {
+            "patch": {
+                "tags": [
+                    "Espace Banque"
+                ],
+                "summary": "Modifier le mot de passe d'un agent de la banque",
+                "description": "Permet de réinitialiser le mot de passe d'un employé spécifique de la même banque.",
+                "operationId": "updateBankAgentPasswordLocal",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID du profil Bank de l'agent ciblé",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "password"
+                                ],
+                                "properties": {
+                                    "password": {
+                                        "description": "Nouveau mot de passe",
+                                        "type": "string",
+                                        "format": "password",
+                                        "minLength": 6
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Mot de passe mis à jour avec succès"
+                    },
+                    "403": {
+                        "description": "Non autorisé sur un agent d'une autre banque"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/supervisor/banks": {
+            "get": {
+                "tags": [
+                    "Espace Superviseur"
+                ],
+                "summary": "Lister toutes les agences bancaires",
+                "description": "Retourne la liste des banques avec leurs utilisateurs (chefs d'agence) pour le Superviseur.",
+                "operationId": "supervisorListBanks",
+                "responses": {
+                    "200": {
+                        "description": "Liste récupérée avec succès"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/bank/agents/{id}/toggle-admin": {
+            "patch": {
+                "tags": [
+                    "Espace Banque"
+                ],
+                "summary": "Modifier les droits d'un guichetier",
+                "description": "Permet au chef d'agence de promouvoir ou révoquer les droits d'administration d'un collègue.",
+                "operationId": "toggleBankAgentAdmin",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID du profil Bank",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Statut mis à jour"
+                    },
+                    "403": {
+                        "description": "Action non autorisée"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/cnps/declarations": {
             "get": {
                 "tags": [
@@ -1067,8 +1249,8 @@
                 "tags": [
                     "Espace CNPS"
                 ],
-                "summary": "Uploader la quittance officielle",
-                "description": "Upload de la quittance PDF après le rapprochement.",
+                "summary": "Associer la quittance officielle (URL)",
+                "description": "Lier l'URL de la quittance générée par la CNPS après le rapprochement.",
                 "operationId": "uploadReceipt",
                 "parameters": [
                     {
@@ -1084,16 +1266,16 @@
                 "requestBody": {
                     "required": true,
                     "content": {
-                        "multipart/form-data": {
+                        "application/json": {
                             "schema": {
                                 "required": [
-                                    "receipt_pdf"
+                                    "receipt_url"
                                 ],
                                 "properties": {
-                                    "receipt_pdf": {
-                                        "description": "Le fichier PDF de la quittance",
+                                    "receipt_url": {
+                                        "description": "Le lien URL vers le document PDF de la quittance",
                                         "type": "string",
-                                        "format": "binary"
+                                        "format": "url"
                                     }
                                 },
                                 "type": "object"
@@ -1103,7 +1285,7 @@
                 },
                 "responses": {
                     "200": {
-                        "description": "Quittance uploadée avec succès"
+                        "description": "Quittance associée avec succès"
                     },
                     "403": {
                         "description": "Paiement non rapproché"
@@ -1522,6 +1704,62 @@
                 ]
             }
         },
+        "/api/declarations/search/specific": {
+            "get": {
+                "tags": [
+                    "Déclarations (Général)"
+                ],
+                "summary": "Rechercher la déclaration la plus récente",
+                "description": "Retrouve la déclaration la plus récente en croisant le NIU de l'entreprise, le montant et la période.",
+                "operationId": "findDeclarationByNiuAmountPeriod",
+                "parameters": [
+                    {
+                        "name": "niu",
+                        "in": "query",
+                        "description": "Numéro Identifiant Unique de l'entreprise",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "amount",
+                        "in": "query",
+                        "description": "Montant de la déclaration",
+                        "required": true,
+                        "schema": {
+                            "type": "number"
+                        }
+                    },
+                    {
+                        "name": "period",
+                        "in": "query",
+                        "description": "Période (ex: YYYY-MM-DD)",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Déclaration trouvée avec succès"
+                    },
+                    "403": {
+                        "description": "Accès non autorisé"
+                    },
+                    "404": {
+                        "description": "Aucune déclaration correspondante"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
         "/api/notifications/unread": {
             "get": {
                 "tags": [
@@ -1612,6 +1850,284 @@
                     }
                 ]
             }
+        },
+        "/api/supervisor/dashboard-stats": {
+            "get": {
+                "tags": [
+                    "Espace Superviseur"
+                ],
+                "summary": "Statistiques globales pour le Dashboard Superviseur",
+                "description": "Retourne les KPIs globaux, les volumes par banque et les tendances du système entier.",
+                "operationId": "supervisorDashboardStats",
+                "parameters": [
+                    {
+                        "name": "bank_id",
+                        "in": "query",
+                        "description": "Filtrer les stats par banque",
+                        "required": false,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "start_date",
+                        "in": "query",
+                        "description": "Date de début (Y-m-d)",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    },
+                    {
+                        "name": "end_date",
+                        "in": "query",
+                        "description": "Date de fin (Y-m-d)",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Statistiques récupérées avec succès"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/supervisor/declarations": {
+            "get": {
+                "tags": [
+                    "Espace Superviseur"
+                ],
+                "summary": "Voir et filtrer TOUTES les déclarations du système",
+                "description": "Tableau de bord de supervision avec recherche et filtres croisés.",
+                "operationId": "supervisorListDeclarations",
+                "parameters": [
+                    {
+                        "name": "status",
+                        "in": "query",
+                        "description": "Filtrer par statut",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "bank_id",
+                        "in": "query",
+                        "description": "Filtrer par banque",
+                        "required": false,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "payment_mode",
+                        "in": "query",
+                        "description": "Filtrer par mode de paiement",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "in": "query",
+                        "description": "Recherche par référence ou NIU",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "start_date",
+                        "in": "query",
+                        "description": "Date de début (Y-m-d)",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    },
+                    {
+                        "name": "end_date",
+                        "in": "query",
+                        "description": "Date de fin (Y-m-d)",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Liste des déclarations"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/supervisor/declarations/{id}": {
+            "get": {
+                "tags": [
+                    "Espace Superviseur"
+                ],
+                "summary": "Afficher les détails d'une déclaration",
+                "operationId": "supervisorShowDeclaration",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID de la déclaration",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Détails de la déclaration"
+                    },
+                    "404": {
+                        "description": "Déclaration non trouvée"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/supervisor/banks/agents": {
+            "post": {
+                "tags": [
+                    "Espace Superviseur"
+                ],
+                "summary": "Créer un compte pour une banque spécifique",
+                "description": "Crée un agent (Bank) et son compte de connexion associé.",
+                "operationId": "storeBankAgentGlobal",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "email",
+                                    "password",
+                                    "bank_code",
+                                    "bank_name"
+                                ],
+                                "properties": {
+                                    "email": {
+                                        "description": "Email de connexion de l'agent",
+                                        "type": "string",
+                                        "format": "email"
+                                    },
+                                    "password": {
+                                        "type": "string",
+                                        "format": "password",
+                                        "minLength": 6
+                                    },
+                                    "bank_code": {
+                                        "description": "Code de la banque (ex: UBA-001)",
+                                        "type": "string"
+                                    },
+                                    "bank_name": {
+                                        "description": "Nom de la banque",
+                                        "type": "string"
+                                    },
+                                    "address": {
+                                        "description": "Adresse de l'agence",
+                                        "type": "string"
+                                    },
+                                    "is_admin": {
+                                        "description": "True si c'est un chef d'agence",
+                                        "type": "boolean"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Agent bancaire créé avec succès"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/supervisor/banks/agents/{id}/password": {
+            "patch": {
+                "tags": [
+                    "Espace Superviseur"
+                ],
+                "summary": "Modifier le mot de passe d'un agent de banque",
+                "description": "Permet au superviseur de réinitialiser le mot de passe d'un agent précis.",
+                "operationId": "updateBankAgentPasswordGlobal",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID du modèle Bank",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "password"
+                                ],
+                                "properties": {
+                                    "password": {
+                                        "description": "Nouveau mot de passe",
+                                        "type": "string",
+                                        "format": "password",
+                                        "minLength": 6
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Mot de passe mis à jour avec succès"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
         }
     },
     "components": {
@@ -1633,6 +2149,10 @@
         {
             "name": "Espace Banque",
             "description": "Espace Banque"
+        },
+        {
+            "name": "Espace Superviseur",
+            "description": "Espace Superviseur"
         },
         {
             "name": "Espace CNPS",

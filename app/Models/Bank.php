@@ -17,6 +17,7 @@ class Bank extends Model
         "address",
         "is_admin", // <-- À rajouter ici
     ];
+    
 
     public function user(){
         return $this->belongsTo(User::class,"user_id");

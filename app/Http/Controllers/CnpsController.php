@@ -74,7 +74,7 @@ class CnpsController extends Controller
             ]);
         });
 
-        $declarations = $query->orderBy('updated_at', 'desc')->paginate(50);
+        $declarations = $query->where("status","!=","rejected")->orderBy('updated_at', 'desc')->paginate(50);
 
         return response()->json($declarations);
     }
@@ -469,12 +469,11 @@ class CnpsController extends Controller
 
         return $pdf->download('Reporting_CNPS_' . date('Y-m-d') . '.pdf');
     }
-
-    #[OA\Post(
+#[OA\Post(
         path: '/api/cnps/declarations/{id}/receipt',
         operationId: 'uploadReceipt',
-        summary: 'Uploader la quittance officielle',
-        description: 'Upload de la quittance PDF après le rapprochement.',
+        summary: 'Associer la quittance officielle (URL)',
+        description: 'Lier l\'URL de la quittance générée par la CNPS après le rapprochement.',
         tags: ['Espace CNPS'],
         security: [['bearerAuth' => []]]
     )]
@@ -482,45 +481,40 @@ class CnpsController extends Controller
     #[OA\RequestBody(
         required: true,
         content: new OA\MediaType(
-            mediaType: 'multipart/form-data',
+            mediaType: 'application/json',
             schema: new OA\Schema(
-                required: ['receipt_pdf'],
+                required: ['receipt_url'],
                 properties: [
-                    new OA\Property(property: 'receipt_pdf', type: 'string', format: 'binary', description: 'Le fichier PDF de la quittance')
+                    new OA\Property(property: 'receipt_url', type: 'string', format: 'url', description: 'Le lien URL vers le document PDF de la quittance')
                 ]
             )
         )
     )]
-    #[OA\Response(response: 200, description: 'Quittance uploadée avec succès')]
+    #[OA\Response(response: 200, description: 'Quittance associée avec succès')]
     #[OA\Response(response: 403, description: 'Paiement non rapproché')]
     public function uploadReceipt(Request $request, $id)
     {
         $declaration = Declaration::findOrFail($id);
 
-        // SÉCURITÉ : On ne peut uploader une quittance que si le paiement a été rapproché
+        // SÉCURITÉ : On ne peut associer une quittance que si le paiement a été rapproché
         if ($declaration->status !== 'cnps_validated') {
             return response()->json([
                 'message' => 'Le paiement doit d\'abord être rapproché avant d\'y associer une quittance.'
             ], 403);
         }
 
-        // VALIDATION : Le fichier PDF est obligatoire
+        // VALIDATION : L'URL est obligatoire et doit avoir un format valide
         $request->validate([
-            'receipt_pdf' => 'required|file|mimes:pdf|max:5096'
+            'receipt_url' => 'required|url|max:2048'
         ], [
-            'receipt_pdf.required' => 'Veuillez joindre la quittance au format PDF.',
-            'receipt_pdf.mimes' => 'Le fichier doit être un PDF.'
+            'receipt_url.required' => 'Veuillez renseigner le lien de la quittance.',
+            'receipt_url.url' => 'Le lien fourni n\'est pas une URL valide.'
         ]);
 
-        // Suppression de l'ancienne quittance si elle existait déjà (en cas de correction)
-        if ($request->hasFile('receipt_pdf')) {
-            if ($declaration->receipt_path) {
-                Storage::disk('public')->delete($declaration->receipt_path);
-            }
-            // Enregistrement dans un dossier spécifique "receipts"
-            $declaration->receipt_path = $request->file('receipt_pdf')->store('receipts', 'public');
-            $declaration->save();
-        }
+        // Enregistrement de l'URL dans la base de données
+        // (On conserve la colonne 'receipt_path' pour stocker cette URL)
+        $declaration->receipt_path = $request->input('receipt_url');
+        $declaration->save();
 
         // ========================================================
         // NOTIFICATION À L'ENTREPRISE
@@ -528,13 +522,13 @@ class CnpsController extends Controller
         $declaration->load('company.user');
         if ($declaration->company && $declaration->company->user) {
             $declaration->company->user->notify(new \App\Notifications\DeclarationStatusUpdated(
-                "Votre quittance officielle est maintenant disponible au téléchargement.", 
+                "Le lien de votre quittance officielle est maintenant disponible.", 
                 $declaration
             ));
         }
 
         return response()->json([
-            'message' => 'Quittance uploadée et transmise à l\'entreprise avec succès.',
+            'message' => 'Lien de la quittance enregistré et transmis à l\'entreprise avec succès.',
             'declaration' => $declaration
         ]);
     }

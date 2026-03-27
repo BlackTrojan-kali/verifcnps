@@ -107,12 +107,9 @@ class CompanyController extends Controller
     {
         $request->validate([
             "bank_id" => "nullable|integer|exists:banks,id", 
-            "reference" => "required|string",
-            "mobile_reference" => "nullable|string",
             "period" => "required|date",
             "amount" => "required|numeric",
             "payment_mode" => "required|string|in:virement,especes,ordre_virement,mobile_money,orange_money",
-            "proof_pdf" => "nullable|file|mimes:pdf|max:5096",
             "status" => "nullable|string",
         ]);
 
@@ -131,12 +128,9 @@ class CompanyController extends Controller
         $declaration = Declaration::create([
             "company_id" => $company->id,
             "bank_id" => $request->bank_id,
-            "reference" => $request->reference,
-            "mobile_reference" => $request->mobile_reference,
             "period" => $date,
             "amount" => $request->amount,
             "payment_mode" => $request->payment_mode, 
-            "proof_path" => $path,
             "status" => $finalStatus, 
         ]);
 

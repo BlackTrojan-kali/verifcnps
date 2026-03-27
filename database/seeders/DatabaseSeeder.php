@@ -32,7 +32,7 @@ class DatabaseSeeder extends Seeder
             'email' => 'contact@entreprise.cm',
             'role' => 'company',
             'password' => Hash::make('password')
-        ]);
+        ]); 
         $entrepriseTest = Company::factory()->create([
             'user_id' => $userEntreprise->id,
             'niu' => 'M123456789',
