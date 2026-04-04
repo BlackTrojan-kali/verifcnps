@@ -7,7 +7,7 @@ use App\Models\CnpsAgent;
 use App\Models\Company;
 use App\Models\Declaration;
 use App\Models\Document;
-use App\Models\Supervisor; // <-- Ajout du modèle Supervisor
+use App\Models\Supervisor;
 use App\Models\User;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
@@ -33,10 +33,12 @@ class DatabaseSeeder extends Seeder
             'role' => 'company',
             'password' => Hash::make('password')
         ]); 
+        
         $entrepriseTest = Company::factory()->create([
             'user_id' => $userEntreprise->id,
-            'niu' => 'M123456789',
-            'raison_sociale' => 'Entreprise Test SARL'
+            'numero_employeur' => 'M123456789', // Anciennement 'niu'
+            'raison_sociale' => 'Entreprise Test SARL',
+            'is_verified' => true // Pratique pour contourner les blocages de test
         ]);
 
         // Compte Banque de test
@@ -45,10 +47,11 @@ class DatabaseSeeder extends Seeder
             'role' => 'bank',
             'password' => Hash::make('password')
         ]);
+        
         $banqueTest = Bank::factory()->create([
             'user_id' => $userBanque->id,
             "bank_code" => 'BNK-001',
-            "is_admin"=>true,
+            "is_admin"=> true,
             "bank_name" => 'Banque Test Cameroun'
         ]);
 
@@ -58,11 +61,12 @@ class DatabaseSeeder extends Seeder
             'role' => 'cnps',
             'password' => Hash::make('password')
         ]);
+        
         CnpsAgent::factory()->create([
             'user_id' => $userCnps->id,
             "is_admin" => true,
             'matricule' => 'ADMIN-001',
-            "full_name" => 'Agent CNPS'
+            "full_name" => 'Agent Supervision'
         ]);
 
         // Compte Superviseur de test (Nouveau)
@@ -71,6 +75,7 @@ class DatabaseSeeder extends Seeder
             'role' => 'supervisor', // Assurez-vous que ce rôle correspond à votre logique métier
             'password' => Hash::make('password')
         ]);
+        
         Supervisor::factory()->create([
             'user_id' => $userSuperviseur->id,
             'supervisor_name' => 'Superviseur Principal',
@@ -84,7 +89,7 @@ class DatabaseSeeder extends Seeder
         // Créer d'autres entités aléatoires
         Company::factory(10)->create();
         Bank::factory(3)->create();
-        Supervisor::factory(5)->create(); // <-- Création de 5 superviseurs aléatoires (avec leurs users associés via le factory)
+        Supervisor::factory(5)->create();
 
         // Récupérer toutes les entreprises et banques pour les lier
         $toutesLesEntreprises = Company::all();
@@ -116,6 +121,7 @@ class DatabaseSeeder extends Seeder
                 'company_id' => $entrepriseTest->id,
                 'bank_id' => $banqueTest->id,
             ]);
+            
             Document::factory()->create(['declaration_id' => $declarationTest->id]);
         }
     }

@@ -6,6 +6,7 @@ use App\Models\Company;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Http; // <-- Ajout de la façade Http
 
 // Importation requise pour les attributs Swagger PHP 8
 use OpenApi\Attributes as OA;
@@ -44,8 +45,8 @@ class AuthController extends Controller
     #[OA\Response(response: 401, description: 'Identifiants invalides')]
     public function login(Request $request){
         $request->validate([
-            "email"=>"email|required ",
-            "password"=>"required| string|min:4",
+            "email" => "email|required",
+            "password" => "required|string|min:4",
         ]);
 
         $credentials = [
@@ -54,13 +55,13 @@ class AuthController extends Controller
         ];
 
         if(!Auth::attempt($credentials)){
-            return response()->json("identifiants invalides",401);
+            return response()->json(["message" => "Identifiants invalides"], 401);
         }
 
-        $user = User::where("email",$request->email)->first();
+        $user = User::where("email", $request->email)->first();
 
         if($user->role === "company"){
-            return response()->json("les entreprises doivent se connecter via l'api");
+            return response()->json(["message" => "Les entreprises doivent se connecter via l'API spécifique"], 403);
         }
 
         // Chargement des relations selon le rôle de l'utilisateur
@@ -74,29 +75,29 @@ class AuthController extends Controller
             $user->load("supervisor");
         }
 
-        $token = $user->createToken("verif_cnps_token")->plainTextToken ;
+        $token = $user->createToken("verif_cnps_token")->plainTextToken;
 
         return response()->json([
-            "user"=>$user,
-            "access_token"=>$token,
-            "token_type"=>"Bearer",
-            "message"=>"authentification reussie"
+            "user" => $user,
+            "access_token" => $token,
+            "token_type" => "Bearer",
+            "message" => "Authentification réussie"
         ]);
     }
 
     #[OA\Post(
         path: '/api/login-company',
         operationId: 'loginCompany',
-        summary: "Connexion d'une entreprise via NIU",
-        description: "Authentifie ou crée une entreprise avec son NIU et génère un token.",
+        summary: "Connexion d'une entreprise via Numéro Employeur",
+        description: "Authentifie ou crée une entreprise avec son Numéro Employeur après vérification sur la plateforme CNPS, et génère un token Danazpay.",
         tags: ['Authentification']
     )]
     #[OA\RequestBody(
         required: true,
         content: new OA\JsonContent(
-            required: ['niu'],
+            required: ['numero_employeur'],
             properties: [
-                new OA\Property(property: 'niu', type: 'string', example: 'M0123456789', description: "Numéro d'Identifiant Unique"),
+                new OA\Property(property: 'numero_employeur', type: 'string', example: 'M0123456789', description: "Numéro Employeur CNPS"),
                 new OA\Property(property: 'name', type: 'string', example: 'Ikarootech', description: 'Raison sociale (optionnelle)')
             ]
         )
@@ -113,14 +114,47 @@ class AuthController extends Controller
             ]
         )
     )]
+    #[OA\Response(response: 400, description: 'Numéro employeur non reconnu par la CNPS')]
+    #[OA\Response(response: 503, description: 'Service CNPS indisponible')]
     public function loginCompany(Request $request)
     {
         $request->validate([
-            "neo" => ["required", "string"], 
+            "numero_employeur" => ["required", "string"], 
             "name" => "string|nullable",
         ]);
 
-        $company = Company::where("niu", $request->neo)->first();
+        $numeroEmployeur = $request->numero_employeur;
+
+        // ==========================================
+        // VÉRIFICATION AUPRÈS DE L'API EXTERNE CNPS
+        // ==========================================
+        try {
+            $response = Http::withHeaders([
+                'Content-Type' => 'application/json; charset=utf-8',
+                'User-Agent' => 'USERAGENT_TEST' // Vous pourrez remplacer par 'Danazpay' en production
+            ])->get("http://172.17.15.151:8080/energiZerServiceREST/paiement/IdentifierE/" . urlencode($numeroEmployeur));
+
+            // Si le serveur CNPS retourne une erreur (4xx ou 5xx)
+            if ($response->failed()) {
+                return response()->json([
+                    "message" => "Échec de la vérification. Le numéro employeur n'a pas pu être validé par la plateforme CNPS."
+                ], 400);
+            }
+            
+            // Note : Si l'API renvoie un statut 200 même quand le numéro n'est pas trouvé (avec un message spécifique dans le JSON), 
+            // vous pouvez ajouter une condition ici. Par exemple :
+            // if ($response->json('status') !== 'SUCCESS') { return ... }
+
+        } catch (\Exception $e) {
+            // Si le serveur est injoignable (timeout, mauvaise URL, etc.)
+            return response()->json([
+                "message" => "Impossible de contacter le serveur de vérification de la CNPS pour le moment."
+            ], 503);
+        }
+        // ==========================================
+
+        // Si la vérification passe, on cherche ou on crée l'entreprise
+        $company = Company::where("numero_employeur", $numeroEmployeur)->first();
         
         if (!$company) {
             $user = User::create([
@@ -129,13 +163,19 @@ class AuthController extends Controller
             
             $company = Company::create([
                 "user_id" => $user->id,
-                "niu" => $request->neo,
-                "raison_sociale" => $request->name ?? "À définir"
+                "numero_employeur" => $numeroEmployeur,
+                "raison_sociale" => $request->name ?? "À définir",
+                "is_verified" => true // On le passe directement à true vu que la CNPS vient de le valider
             ]);
         
             $user->load("company");
         } else {
             $user = $company->user; 
+            
+            // S'assurer qu'elle est marquée comme vérifiée si ce n'était pas le cas
+            if (!$company->is_verified) {
+                $company->update(['is_verified' => true]);
+            }
         }
         
         $token = $user->createToken("verif_cnps_token")->plainTextToken;
@@ -191,7 +231,7 @@ class AuthController extends Controller
     public function logout(Request $request){
         Auth::user()->currentAccessToken()->delete();
         return response()->json([
-            "message"=>"vous êtes déconnecté"
+            "message" => "Vous êtes déconnecté"
         ]);
     }
 }

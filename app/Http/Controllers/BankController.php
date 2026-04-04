@@ -11,15 +11,73 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash; // Ajouté pour le hachage des mots de passe
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Http; // <-- Indispensable pour les requêtes API
+use Illuminate\Support\Facades\Log;  // <-- Pour logger les erreurs de l'API externe
 
 // Importation indispensable pour Swagger
 use OpenApi\Attributes as OA;
 
 class BankController extends Controller
 {
+    /**
+     * ========================================================
+     * MÉTHODE PRIVÉE : SYNCHRONISATION AVEC L'API DE LA CNPS
+     * ========================================================
+     */
+    private function syncWithCnpsApi(Declaration $declaration, Bank $bank)
+    {
+        // On s'assure que l'entreprise est chargée
+        $declaration->loadMissing('company');
+
+        // Mapping basique des modes de paiement (à adapter selon les codes réels de la CNPS)
+        $modeMapping = [
+            'especes' => '02',
+            'virement' => '01',
+            'ordre_virement' => '03',
+            'mobile_money' => '14',
+            'orange_money' => '15'
+        ];
+        
+        $modePaiementCode = $declaration->payment_mode_code 
+                            ?? $modeMapping[$declaration->payment_mode] 
+                            ?? '01';
+
+        // Construction du Payload (Tableau d'objets comme défini dans votre CURL)
+        $payload = [
+            [
+                "matricule" => $declaration->employer_number ?? $declaration->company->numero_employeur,
+                "id_paiement" => $declaration->payment_id ?? 'BNK-' . $declaration->id . '-' . time(),
+                "montant" => (string) $declaration->amount, // Cast en string pour correspondre au JSON
+                "date_paiement" => Carbon::parse($declaration->payment_date ?? now())->format('d-m-Y'),
+                "origine" => $declaration->payment_origin ?? 'AGENCE_BANQUE',
+                "mode_paiement" => (string) $modePaiementCode,
+                "type_assu" => $declaration->insurance_type ?? 'EM',
+                "telephone" => $declaration->payer_phone ?? $declaration->company->telephone ?? '000000000',
+                "localisation" => $declaration->location_code ?? '000-000-000',
+                "nomBank" => $declaration->bank_name ?? $bank->bank_name,
+                "refTransactionBank" => $declaration->bank_transaction_ref ?? $declaration->reference
+            ]
+        ];
+
+        try {
+            $response = Http::withHeaders([
+                'Content-Type' => 'application/json; charset=utf-8',
+                'User-Agent' => 'Danazpay'
+            ])->put("http://172.17.15.151:8080/energiZerServiceREST/paiement/transfert", $payload);
+
+            if ($response->failed()) {
+                Log::error("Échec de la synchronisation CNPS pour la déclaration ID {$declaration->id}. Statut: {$response->status()} - Réponse: {$response->body()}");
+            } else {
+                Log::info("Synchronisation CNPS réussie pour la déclaration ID {$declaration->id}.");
+            }
+        } catch (\Exception $e) {
+            Log::error("Erreur critique lors de l'appel API CNPS (Transfert) pour la déclaration ID {$declaration->id} : " . $e->getMessage());
+        }
+    }
+
     #[OA\Get(
         path: '/api/bank/dashboard-stats',
         operationId: 'bankDashboardStats',
@@ -36,51 +94,33 @@ class BankController extends Controller
     {
         $user = Auth::user();
         
-        // Sécurité : On s'assure que l'utilisateur a bien une banque rattachée
         if (!$user->bank) {
             return response()->json(['message' => 'Aucune banque rattachée à cet utilisateur.'], 403);
         }
 
         $bankId = $user->bank->id;
-
-        // 1. Initialisation de la requête restreinte à CETTE banque uniquement
         $query = Declaration::where('bank_id', $bankId);
 
-        // 2. Filtre de dates (Optionnel)
         if ($request->filled(['start_date', 'end_date'])) {
             $start = Carbon::parse($request->start_date)->startOfDay();
             $end = Carbon::parse($request->end_date)->endOfDay();
             $query->whereBetween('created_at', [$start, $end]);
         }
 
-        // ==========================================
-        // CALCUL DES KPIs (Cartes du haut)
-        // ==========================================
-        
-        // En attente d'action par le guichetier (à valider ou rejeter)
         $pendingCount = (clone $query)->where('status', 'submited')->count();
-        
-        // Dossiers traités et validés par la banque (ou déjà rapprochés par CNPS)
         $validatedCount = (clone $query)->whereIn('status', ['bank_validated', 'cnps_validated'])->count();
-        
-        // Dossiers rejetés par la banque
         $rejectedCount = (clone $query)->where('status', 'rejected')->count();
-        
-        // Total de l'argent collecté via cette banque (uniquement les montants validés)
         $totalCollected = (clone $query)->whereIn('status', ['bank_validated', 'cnps_validated'])->sum('amount');
 
-        // ==========================================
-        // GRAPHIQUE CAMEMBERT : Modes de paiement
-        // ==========================================
         $modes = (clone $query)
             ->select('payment_mode', DB::raw('COUNT(*) as count'))
             ->groupBy('payment_mode')
             ->get();
 
         $colorMap = [
-            'virement'       => '#10B981', // Vert
-            'especes'        => '#F59E0B', // Jaune/Orange (Saisie guichet)
-            'ordre_virement' => '#8B5CF6'  // Violet (Saisie guichet)
+            'virement'       => '#10B981', 
+            'especes'        => '#F59E0B', 
+            'ordre_virement' => '#8B5CF6'  
         ];
 
         $paymentModeData = $modes->map(function ($item) use ($colorMap) {
@@ -92,9 +132,6 @@ class BankController extends Controller
             ];
         })->values();
 
-        // ==========================================
-        // GRAPHIQUE ÉVOLUTION : Encaissements sur les 7 derniers jours
-        // ==========================================
         $trendData = (clone $query)
             ->whereIn('status', ['bank_validated', 'cnps_validated'])
             ->where('created_at', '>=', Carbon::now()->subDays(7))
@@ -104,15 +141,11 @@ class BankController extends Controller
             ->get()
             ->map(function ($item) {
                 return [
-                    // Format court ex: "18 Mars"
                     'date' => Carbon::parse($item->date)->locale('fr')->translatedFormat('d M'),
                     'amount' => (float) $item->total
                 ];
             });
 
-        // ==========================================
-        // RÉPONSE AU FORMAT JSON POUR REACT
-        // ==========================================
         return response()->json([
             'kpis' => [
                 'pendingCount' => $pendingCount,
@@ -191,7 +224,6 @@ class BankController extends Controller
         $user = Auth::user();
         $declaration = Declaration::findOrFail($id);
 
-        // On vérifie que la déclaration appartient bien à la banque connectée
         if ($declaration->bank_id !== $user->bank->id) {
             return response()->json([
                 'message' => 'Accès interdit. Cette déclaration n\'appartient pas à votre banque.'
@@ -207,7 +239,7 @@ class BankController extends Controller
         path: '/api/bank/declarations/{id}/validate',
         operationId: 'validateBankPayment',
         summary: 'Valider un paiement',
-        description: 'Confirmation de réception des fonds par la banque.',
+        description: 'Confirmation de réception des fonds par la banque et notification à la CNPS.',
         tags: ['Espace Banque'],
         security: [['bearerAuth' => []]]
     )]
@@ -243,27 +275,29 @@ class BankController extends Controller
 
         $request->validate($rules);
 
+        // Mise à jour de la déclaration
         $declaration->reference = $request->reference;
+        $declaration->bank_transaction_ref = $request->reference; // Utile pour l'API CNPS
+        $declaration->payment_date = now(); // On acte la date du paiement réel
         
         if ($declaration->payment_mode === 'ordre_virement') {
             $declaration->order_reference = $request->order_reference;
         }
 
         $declaration->status = 'bank_validated';
-        $declaration->save();
-
-        // ========================================================
-        // ENVOI DE LA NOTIFICATION À LA CNPS (ET À L'ENTREPRISE)
-        // ========================================================
         
-        // 1. Alerter tous les agents CNPS
+
+        // --- APPEL API CNPS ---
+        $this->syncWithCnpsApi($declaration, $bank);
+        $declaration->status= "cnps_validated";
+        $declaration->save();
+        // --- NOTIFICATIONS INTERNES ---
         $cnpsAgents = User::where('role', 'cnps')->get();
         Notification::send($cnpsAgents, new DeclarationStatusUpdated(
             "La banque a transféré un paiement de " . number_format($declaration->amount, 0, ',', ' ') . " FCFA.", 
             $declaration
         ));
 
-        // 2. (Optionnel mais recommandé) Alerter l'entreprise que son paiement a passé l'étape banque
         $declaration->load('company.user');
         if ($declaration->company && $declaration->company->user) {
             $declaration->company->user->notify(new DeclarationStatusUpdated(
@@ -314,9 +348,6 @@ class BankController extends Controller
         $declaration->comment_reject = $request->comment_reject;
         $declaration->save();
 
-        // ========================================================
-        // ENVOI DE LA NOTIFICATION DE REJET À L'ENTREPRISE
-        // ========================================================
         $declaration->load('company.user');
         if ($declaration->company && $declaration->company->user) {
             $declaration->company->user->notify(new DeclarationStatusUpdated(
@@ -335,7 +366,7 @@ class BankController extends Controller
         path: '/api/bank/counter-deposits',
         operationId: 'storeCounterDeposit',
         summary: 'Créer un dépôt au guichet',
-        description: 'Enregistre un paiement en espèces ou ordre de virement fait physiquement à la banque.',
+        description: 'Enregistre un paiement physique et notifie directement la CNPS via API.',
         tags: ['Espace Banque'],
         security: [['bearerAuth' => []]]
     )]
@@ -377,29 +408,34 @@ class BankController extends Controller
             $path = $request->file("proof_pdf")->store("proofs", "public");
         }
 
+        // Création de la déclaration (directement validée par la banque)
         $declaration = Declaration::create([
             'company_id' => $request->company_id,
             'bank_id' => $bank->id, 
             'reference' => $request->reference,
+            'bank_transaction_ref' => $request->reference,
             'order_reference' => $request->payment_mode === 'ordre_virement' ? $request->order_reference : null,
             'period' => Carbon::parse($request->period),
+            'payment_date' => now(), // Date du jour
             'amount' => $request->amount,
             'payment_mode' => $request->payment_mode,
+            'payment_origin' => 'GUICHET_BANQUE',
             'proof_path' => $path,
-            'status' => 'bank_validated', // Validé par défaut
+            'status' => 'bank_validated',
         ]);
 
-        // ========================================================
-        // ENVOI DE LA NOTIFICATION À LA CNPS POUR LE DÉPÔT GUICHET
-        // ========================================================
+        // --- APPEL API CNPS ---
+        $this->syncWithCnpsApi($declaration, $bank);
+
+        // --- NOTIFICATIONS INTERNES ---
         $cnpsAgents = User::where('role', 'cnps')->get();
         Notification::send($cnpsAgents, new DeclarationStatusUpdated(
-            "Un nouveau dépôt au guichet de " . number_format($declaration->amount, 0, ',', ' ') . " FCFA a été enregistré.", 
+            "Un nouveau dépôt au guichet de " . number_format($declaration->amount, 0, ',', ' ') . " FCFA a été enregistré et transmis.", 
             $declaration
         ));
 
         return response()->json([
-            'message' => 'Dépôt au guichet enregistré avec succès.',
+            'message' => 'Dépôt au guichet enregistré et transmis à la CNPS avec succès.',
             'declaration' => $declaration->load('company')
         ], 201);
     }
@@ -408,7 +444,7 @@ class BankController extends Controller
         path: '/api/bank/counter-deposits/{id}',
         operationId: 'updateCounterDeposit',
         summary: 'Modifier un dépôt au guichet',
-        description: 'Met à jour un dépôt existant. Note : utiliser POST avec le paramètre _method=PUT si vous envoyez un fichier.',
+        description: 'Met à jour un dépôt existant.',
         tags: ['Espace Banque'],
         security: [['bearerAuth' => []]]
     )]
@@ -467,6 +503,7 @@ class BankController extends Controller
         $declaration->update([
             'company_id' => $request->company_id,
             'reference' => $request->reference,
+            'bank_transaction_ref' => $request->reference,
             'order_reference' => $request->payment_mode === 'ordre_virement' ? $request->order_reference : null,
             'period' => Carbon::parse($request->period),
             'amount' => $request->amount,
@@ -481,23 +518,23 @@ class BankController extends Controller
 
     #[OA\Get(
         path: '/api/bank/companies/search',
-        operationId: 'searchCompanyByNiuBank',
-        summary: 'Rechercher une entreprise par NIU',
+        operationId: 'searchCompanyByNumeroEmployeurBank',
+        summary: 'Rechercher une entreprise par Numéro Employeur',
         description: 'Permet à la banque de retrouver les informations d\'une entreprise lors d\'un dépôt au guichet.',
         tags: ['Espace Banque'],
         security: [['bearerAuth' => []]]
     )]
-    #[OA\Parameter(name: 'niu', in: 'query', required: true, description: 'Numéro d\'Identifiant Unique de l\'entreprise', schema: new OA\Schema(type: 'string'))]
+    #[OA\Parameter(name: 'numero_employeur', in: 'query', required: true, description: 'Numéro Employeur CNPS de l\'entreprise', schema: new OA\Schema(type: 'string'))]
     #[OA\Response(response: 200, description: 'Entreprise trouvée')]
     #[OA\Response(response: 404, description: 'Aucune entreprise trouvée')]
-    public function searchCompanyByNiu(Request $request)
+    public function searchCompanyByNumeroEmployeur(Request $request)
     {
-        $request->validate(['niu' => 'required|string']);
+        $request->validate(['numero_employeur' => 'required|string']);
         
-        $company = Company::where('niu', $request->niu)->first();
+        $company = Company::where('numero_employeur', $request->numero_employeur)->first();
         
         if (!$company) {
-            return response()->json(['message' => 'Aucune entreprise trouvée avec ce NIU.'], 404);
+            return response()->json(['message' => 'Aucune entreprise trouvée avec ce Numéro Employeur.'], 404);
         }
         
         return response()->json(['company' => $company]);
@@ -532,26 +569,21 @@ class BankController extends Controller
     #[OA\Response(response: 201, description: 'Agent créé avec succès')]
     public function storeBankAgent(Request $request)
     {
-        // 1. On récupère le profil de la banque actuellement connectée
         $currentBank = Auth::user()->bank;
 
-        // 2. Validation
         $request->validate([
             'email' => 'required|email|unique:users,email',
             'password' => 'required|string|min:6',
-            'bank_code' => 'required|string|unique:banks,bank_code', // Doit être unique dans la table
+            'bank_code' => 'required|string|unique:banks,bank_code', 
             'is_admin' => 'boolean'
         ]);
 
-        // 3. Création de l'utilisateur de connexion
         $user = User::create([
             'email' => $request->email,
             'password' => Hash::make($request->password),
             'role' => 'bank'
         ]);
 
-        // 4. Création du profil de l'agent.
-        // Il hérite automatiquement du nom et de l'adresse de la banque créatrice.
         $agent = \App\Models\Bank::create([
             'user_id' => $user->id,
             'bank_code' => $request->bank_code,
@@ -594,18 +626,14 @@ class BankController extends Controller
             'password' => 'required|string|min:6'
         ]);
 
-        // On cherche l'agent ciblé
         $targetAgent = \App\Models\Bank::with('user')->findOrFail($id);
 
-        // Sécurité : On s'assure que l'agent ciblé appartient bien à la MÊME banque
-        // On vérifie cela grâce au nom de la banque qui a été hérité lors de la création
         if ($targetAgent->bank_name !== $currentBank->bank_name) {
             return response()->json([
                 'message' => 'Opération refusée : cet agent n\'appartient pas à votre établissement bancaire.'
             ], 403);
         }
 
-        // Mise à jour
         $targetAgent->user->update([
             'password' => Hash::make($request->password)
         ]);
@@ -615,6 +643,7 @@ class BankController extends Controller
             'agent' => $targetAgent
         ], 200);
     }
+
     #[OA\Get(
         path: '/api/supervisor/banks',
         operationId: 'supervisorListBanks',
@@ -626,9 +655,6 @@ class BankController extends Controller
     #[OA\Response(response: 200, description: 'Liste récupérée avec succès')]
     public function listBanks()
     {
-        // On récupère toutes les banques avec les infos de connexion associées
-        // On peut filtrer pour ne prendre que les "chefs d'agence" (is_admin = true)
-        // si vous voulez éviter de voir tous les simples guichetiers.
         $banks = Bank::with('user')
                      ->where('is_admin', true) 
                      ->orderBy('bank_name', 'asc')
@@ -639,7 +665,6 @@ class BankController extends Controller
         ]);
     }
     
-
     #[OA\Get(
         path: '/api/bank/agents',
         operationId: 'listBankAgentsLocal',
@@ -653,7 +678,6 @@ class BankController extends Controller
     {
         $currentBank = Auth::user()->bank;
 
-        // On récupère tous les profils "Bank" qui ont le même nom de banque
         $agents = \App\Models\Bank::with('user')
             ->where('bank_name', $currentBank->bank_name)
             ->orderBy('created_at', 'desc')
@@ -680,17 +704,14 @@ class BankController extends Controller
         $currentBank = Auth::user()->bank;
         $targetAgent = \App\Models\Bank::with('user')->findOrFail($id);
 
-        // Sécurité 1 : Vérifier que l'agent cible est dans la même banque
         if ($targetAgent->bank_name !== $currentBank->bank_name) {
             return response()->json(['message' => 'Cet agent n\'appartient pas à votre établissement.'], 403);
         }
 
-        // Sécurité 2 : Empêcher l'utilisateur de se retirer ses propres droits par erreur
         if ($targetAgent->user_id === Auth::id()) {
             return response()->json(['message' => 'Vous ne pouvez pas modifier vos propres privilèges.'], 403);
         }
 
-        // Inversion du statut
         $targetAgent->is_admin = !$targetAgent->is_admin;
         $targetAgent->save();
 

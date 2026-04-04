@@ -14,10 +14,11 @@ return new class extends Migration
         Schema::create('companies', function (Blueprint $table) {
             $table->id();
             $table->foreignId("user_id")->constrained()->onDelete("cascade");
-            $table->string("niu");
+            $table->string("numero_employeur"); // Remplacé "niu" par "numero_employeur"
             $table->string("raison_sociale");
             $table->string("telephone")->nullable();
             $table->string("address")->nullable();
+            $table->boolean("is_verified")->default(false); // Ajout du champ is_verified
             $table->timestamps();
         });
     }

@@ -33,12 +33,12 @@
                                     "email": {
                                         "type": "string",
                                         "format": "email",
-                                        "example": "bank@test.com"
+                                        "example": "guichet@banque.cm"
                                     },
                                     "password": {
                                         "type": "string",
                                         "format": "password",
-                                        "example": "password123"
+                                        "example": "password"
                                     }
                                 },
                                 "type": "object"
@@ -85,8 +85,8 @@
                 "tags": [
                     "Authentification"
                 ],
-                "summary": "Connexion d'une entreprise via NIU",
-                "description": "Authentifie ou crée une entreprise avec son NIU et génère un token.",
+                "summary": "Connexion d'une entreprise via Numéro Employeur",
+                "description": "Authentifie ou crée une entreprise avec son Numéro Employeur après vérification sur la plateforme CNPS, et génère un token Danazpay.",
                 "operationId": "loginCompany",
                 "requestBody": {
                     "required": true,
@@ -94,11 +94,11 @@
                         "application/json": {
                             "schema": {
                                 "required": [
-                                    "niu"
+                                    "numero_employeur"
                                 ],
                                 "properties": {
-                                    "niu": {
-                                        "description": "Numéro d'Identifiant Unique",
+                                    "numero_employeur": {
+                                        "description": "Numéro Employeur CNPS",
                                         "type": "string",
                                         "example": "M0123456789"
                                     },
@@ -140,6 +140,12 @@
                                 }
                             }
                         }
+                    },
+                    "400": {
+                        "description": "Numéro employeur non reconnu par la CNPS"
+                    },
+                    "503": {
+                        "description": "Service CNPS indisponible"
                     }
                 }
             }
@@ -350,7 +356,7 @@
                     "Espace Banque"
                 ],
                 "summary": "Valider un paiement",
-                "description": "Confirmation de réception des fonds par la banque.",
+                "description": "Confirmation de réception des fonds par la banque et notification à la CNPS.",
                 "operationId": "validateBankPayment",
                 "parameters": [
                     {
@@ -457,7 +463,7 @@
                     "Espace Banque"
                 ],
                 "summary": "Créer un dépôt au guichet",
-                "description": "Enregistre un paiement en espèces ou ordre de virement fait physiquement à la banque.",
+                "description": "Enregistre un paiement physique et notifie directement la CNPS via API.",
                 "operationId": "storeCounterDeposit",
                 "requestBody": {
                     "required": true,
@@ -529,7 +535,7 @@
                     "Espace Banque"
                 ],
                 "summary": "Modifier un dépôt au guichet",
-                "description": "Met à jour un dépôt existant. Note : utiliser POST avec le paramètre _method=PUT si vous envoyez un fichier.",
+                "description": "Met à jour un dépôt existant.",
                 "operationId": "updateCounterDeposit",
                 "parameters": [
                     {
@@ -609,14 +615,14 @@
                 "tags": [
                     "Espace Banque"
                 ],
-                "summary": "Rechercher une entreprise par NIU",
+                "summary": "Rechercher une entreprise par Numéro Employeur",
                 "description": "Permet à la banque de retrouver les informations d'une entreprise lors d'un dépôt au guichet.",
-                "operationId": "searchCompanyByNiuBank",
+                "operationId": "searchCompanyByNumeroEmployeurBank",
                 "parameters": [
                     {
-                        "name": "niu",
+                        "name": "numero_employeur",
                         "in": "query",
-                        "description": "Numéro d'Identifiant Unique de l'entreprise",
+                        "description": "Numéro Employeur CNPS de l'entreprise",
                         "required": true,
                         "schema": {
                             "type": "string"
@@ -859,7 +865,7 @@
                     {
                         "name": "search",
                         "in": "query",
-                        "description": "Recherche par référence ou NIU",
+                        "description": "Recherche par référence ou Numéro Employeur",
                         "required": false,
                         "schema": {
                             "type": "string"
@@ -904,7 +910,7 @@
                     "Espace CNPS"
                 ],
                 "summary": "Rapprochement du paiement",
-                "description": "La CNPS valide définitivement la déclaration.",
+                "description": "La CNPS valide définitivement la déclaration et synchronise avec le système central.",
                 "operationId": "reconcilePayment",
                 "parameters": [
                     {
@@ -1389,7 +1395,6 @@
                         "multipart/form-data": {
                             "schema": {
                                 "required": [
-                                    "reference",
                                     "period",
                                     "amount",
                                     "payment_mode"
@@ -1478,7 +1483,6 @@
                         "multipart/form-data": {
                             "schema": {
                                 "required": [
-                                    "reference",
                                     "amount",
                                     "payment_mode"
                                 ],
@@ -1593,7 +1597,7 @@
                     "Espace Entreprise"
                 ],
                 "summary": "Télécharger la quittance officielle de la CNPS",
-                "description": "Télécharge le fichier PDF de la quittance si elle a été générée.",
+                "description": "Télécharge le fichier PDF de la quittance depuis le serveur FTP de la CNPS.",
                 "operationId": "downloadReceipt",
                 "parameters": [
                     {
@@ -1710,13 +1714,13 @@
                     "Déclarations (Général)"
                 ],
                 "summary": "Rechercher la déclaration la plus récente",
-                "description": "Retrouve la déclaration la plus récente en croisant le NIU de l'entreprise, le montant et la période.",
-                "operationId": "findDeclarationByNiuAmountPeriod",
+                "description": "Retrouve la déclaration la plus récente en croisant le Numéro Employeur de l'entreprise, le montant et la période.",
+                "operationId": "findDeclarationByNumeroEmployeurAmountPeriod",
                 "parameters": [
                     {
-                        "name": "niu",
+                        "name": "numero_employeur",
                         "in": "query",
-                        "description": "Numéro Identifiant Unique de l'entreprise",
+                        "description": "Numéro Employeur CNPS de l'entreprise",
                         "required": true,
                         "schema": {
                             "type": "string"

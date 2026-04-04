@@ -14,12 +14,77 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Http; // <-- Indispensable pour l'API CNPS
+use Illuminate\Support\Facades\Log;  // <-- Pour logger les appels API
 
 // Importation indispensable pour Swagger
 use OpenApi\Attributes as OA;
 
 class CnpsController extends Controller
 {
+    /**
+     * ========================================================
+     * MÉTHODE PRIVÉE : SYNCHRONISATION AVEC L'API DE LA CNPS
+     * ========================================================
+     */
+    private function syncWithCnpsApi(Declaration $declaration)
+    {
+        $declaration->loadMissing(['company', 'bank']);
+
+        // Mapping basique des modes de paiement
+        $modeMapping = [
+            'especes' => '02',
+            'virement' => '01',
+            'ordre_virement' => '03',
+            'mobile_money' => '14',
+            'orange_money' => '15'
+        ];
+        
+        $modePaiementCode = $declaration->payment_mode_code 
+                            ?? $modeMapping[$declaration->payment_mode] 
+                            ?? '01';
+                            
+        // Détermination de l'origine
+        $origine = $declaration->payment_origin ?? 'CNPS_RECONCILIATION';
+        if ($declaration->payment_mode === 'orange_money') {
+            $origine = 'OMCAM';
+        } elseif ($declaration->payment_mode === 'mobile_money') {
+            $origine = 'MOMO_API';
+        }
+
+        // Construction du Payload
+        $payload = [
+            [
+                "matricule" => $declaration->employer_number ?? $declaration->company->numero_employeur,
+                "id_paiement" => $declaration->payment_id ?? 'CNPS-' . $declaration->id . '-' . time(),
+                "montant" => (string) $declaration->amount, 
+                "date_paiement" => Carbon::parse($declaration->payment_date ?? now())->format('d-m-Y'),
+                "origine" => $origine,
+                "mode_paiement" => (string) $modePaiementCode,
+                "type_assu" => $declaration->insurance_type ?? 'EM',
+                "telephone" => $declaration->payer_phone ?? $declaration->company->telephone ?? '000000000',
+                "localisation" => $declaration->location_code ?? '000-000-000',
+                "nomBank" => $declaration->bank_name ?? ($declaration->bank ? $declaration->bank->bank_name : 'INCONNU'),
+                "refTransactionBank" => $declaration->bank_transaction_ref ?? $declaration->reference ?? 'NON_APPLICABLE'
+            ]
+        ];
+
+        try {
+            $response = Http::withHeaders([
+                'Content-Type' => 'application/json; charset=utf-8',
+                'User-Agent' => 'Danazpay'
+            ])->put("http://172.17.15.151:8080/energiZerServiceREST/paiement/transfert", $payload);
+
+            if ($response->failed()) {
+                Log::error("Échec de la synchronisation CNPS (Rapprochement) pour la déclaration ID {$declaration->id}. Statut: {$response->status()} - Réponse: {$response->body()}");
+            } else {
+                Log::info("Synchronisation CNPS réussie (Rapprochement) pour la déclaration ID {$declaration->id}.");
+            }
+        } catch (\Exception $e) {
+            Log::error("Erreur critique lors de l'appel API CNPS (Rapprochement) pour la déclaration ID {$declaration->id} : " . $e->getMessage());
+        }
+    }
+
     #[OA\Get(
         path: '/api/cnps/declarations',
         operationId: 'cnpsListDeclarations',
@@ -31,21 +96,21 @@ class CnpsController extends Controller
     #[OA\Parameter(name: 'status', in: 'query', required: false, description: 'Filtrer par statut', schema: new OA\Schema(type: 'string'))]
     #[OA\Parameter(name: 'bank_id', in: 'query', required: false, description: 'ID de la banque', schema: new OA\Schema(type: 'integer'))]
     #[OA\Parameter(name: 'payment_mode', in: 'query', required: false, description: 'Mode de paiement', schema: new OA\Schema(type: 'string'))]
-    #[OA\Parameter(name: 'search', in: 'query', required: false, description: 'Recherche par référence ou NIU', schema: new OA\Schema(type: 'string'))]
+    #[OA\Parameter(name: 'search', in: 'query', required: false, description: 'Recherche par référence ou Numéro Employeur', schema: new OA\Schema(type: 'string'))]
     #[OA\Parameter(name: 'start_date', in: 'query', required: false, description: 'Date de début (Y-m-d)', schema: new OA\Schema(type: 'string', format: 'date'))]
     #[OA\Parameter(name: 'end_date', in: 'query', required: false, description: 'Date de fin (Y-m-d)', schema: new OA\Schema(type: 'string', format: 'date'))]
     #[OA\Response(response: 200, description: 'Liste des déclarations')]
     public function index(Request $request)
     {
-        // On charge les relations pour que React ait le NIU de l'entreprise et le nom de la banque
+        // On charge les relations pour que React ait le Numéro Employeur de l'entreprise et le nom de la banque
         $query = Declaration::with(['company', 'bank']);
 
-        // Filtre par Statut (ex: voir uniquement ce que la banque a validé)
+        // Filtre par Statut
         $query->when($request->filled('status'), function ($q) use ($request) {
             $q->where('status', $request->status);
         });
 
-        // Filtre par Banque (ex: voir tous les encaissements de UBA)
+        // Filtre par Banque
         $query->when($request->filled('bank_id'), function ($q) use ($request) {
             $q->where('bank_id', $request->bank_id);
         });
@@ -55,13 +120,14 @@ class CnpsController extends Controller
             $q->where('payment_mode', $request->payment_mode);
         });
 
-        // Recherche textuelle puissante (par Référence CNPS ou NIU de l'entreprise)
+        // Recherche textuelle puissante (par Référence CNPS ou Numéro Employeur)
         $query->when($request->filled('search'), function ($q) use ($request) {
             $searchTerm = '%' . $request->search . '%';
             $q->where(function($subQuery) use ($searchTerm) {
                 $subQuery->where('reference', 'LIKE', $searchTerm)
                          ->orWhereHas('company', function($companyQuery) use ($searchTerm) {
-                             $companyQuery->where('niu', 'LIKE', $searchTerm);
+                             // Mise à jour : utilisation de numero_employeur
+                             $companyQuery->where('numero_employeur', 'LIKE', $searchTerm);
                          });
             });
         });
@@ -74,7 +140,7 @@ class CnpsController extends Controller
             ]);
         });
 
-        $declarations = $query->where("status","!=","rejected")->orderBy('updated_at', 'desc')->paginate(50);
+        $declarations = $query->where("status", "!=", "rejected")->orderBy('updated_at', 'desc')->paginate(50);
 
         return response()->json($declarations);
     }
@@ -83,7 +149,7 @@ class CnpsController extends Controller
         path: '/api/cnps/declarations/{id}/reconcile',
         operationId: 'reconcilePayment',
         summary: 'Rapprochement du paiement',
-        description: 'La CNPS valide définitivement la déclaration.',
+        description: 'La CNPS valide définitivement la déclaration et synchronise avec le système central.',
         tags: ['Espace CNPS'],
         security: [['bearerAuth' => []]]
     )]
@@ -97,13 +163,18 @@ class CnpsController extends Controller
             'status' => 'cnps_validated'
         ]);
 
+        // ==========================================
+        // SYNCHRONISATION AVEC LE SYSTÈME CENTRAL CNPS
+        // ==========================================
+        $this->syncWithCnpsApi($declaration);
+
         $declaration->company->user->notify(new DeclarationStatusUpdated(
-         "Félicitations, votre paiement (Réf: {$declaration->reference}) a été définitivement rapproché par la CNPS.",    
-        $declaration
-           ));
+            "Félicitations, votre paiement (Réf: {$declaration->reference}) a été définitivement rapproché par la CNPS.",    
+            $declaration
+        ));
 
         return response()->json([
-            'message' => 'Paiement rapproché avec succès.',
+            'message' => 'Paiement rapproché et synchronisé avec succès.',
             'declaration' => $declaration
         ]);
     }
@@ -142,9 +213,8 @@ class CnpsController extends Controller
 
         // Notification d'alerte à l'entreprise
         $declaration->company->user->notify(new DeclarationStatusUpdated(
-            "ATTENTION : Votre déclaration ({$declaration->reference}) a été rejetée. Motif : {$request->comment_reject}"
-        ,  
-        $declaration, 
+            "ATTENTION : Votre déclaration ({$declaration->reference}) a été rejetée. Motif : {$request->comment_reject}",  
+            $declaration 
         ));
 
         return response()->json([
@@ -169,7 +239,7 @@ class CnpsController extends Controller
         // 1. Initialisation de la requête de base
         $query = Declaration::query();
 
-        // 2. Application du filtre de date (Si l'utilisateur a choisi une période)
+        // 2. Application du filtre de date
         if ($request->filled(['start_date', 'end_date'])) {
             $start = Carbon::parse($request->start_date)->startOfDay();
             $end = Carbon::parse($request->end_date)->endOfDay();
@@ -201,18 +271,17 @@ class CnpsController extends Controller
         
         $bankData = (clone $query)
             ->whereNotNull('bank_id')
-            ->where('status', 'cnps_validated') // On ne compte que l'argent réellement encaissé
+            ->where('status', 'cnps_validated') 
             ->select('bank_id', DB::raw('SUM(amount) as total_amount'))
             ->groupBy('bank_id')
-            ->with('bank:id,bank_name') // On joint la table banque pour récupérer le nom
+            ->with('bank:id,bank_name') 
             ->get()
             ->map(function ($item) {
                 return [
                     'name' => $item->bank ? $item->bank->bank_name : 'Inconnu',
-                    'amount' => (float) $item->total_amount // Cast en float pour Recharts
+                    'amount' => (float) $item->total_amount
                 ];
             })
-            // On trie par montant décroissant pour que le graphique soit beau (du + grand au + petit)
             ->sortByDesc('amount')
             ->values();
 
@@ -228,32 +297,25 @@ class CnpsController extends Controller
 
         $totalModes = $modes->sum('count');
 
-        // On assigne une couleur précise à chaque mode pour coller au design
         $colorMap = [
-            'virement'       => '#10B981', // Vert émeraude
-            'mobile_money'   => '#1E40AF', // Bleu foncé
-            'orange_money'   => '#F97316', // Orange
-            'especes'        => '#64748B', // Gris
-            'ordre_virement' => '#8B5CF6'  // Violet
+            'virement'       => '#10B981', 
+            'mobile_money'   => '#1E40AF', 
+            'orange_money'   => '#F97316', 
+            'especes'        => '#64748B', 
+            'ordre_virement' => '#8B5CF6'  
         ];
 
         $paymentModeData = $modes->map(function ($item) use ($totalModes, $colorMap) {
-            // On calcule le pourcentage que représente ce mode de paiement
             $percentage = $totalModes > 0 ? round(($item->count / $totalModes) * 100, 1) : 0;
-            
-            // On formate le nom (ex: "mobile_money" devient "Mobile money")
             $formattedName = ucfirst(str_replace('_', ' ', $item->payment_mode));
 
             return [
                 'name' => $formattedName,
                 'value' => $percentage,
-                'color' => $colorMap[$item->payment_mode] ?? '#CBD5E1' // Gris clair par défaut
+                'color' => $colorMap[$item->payment_mode] ?? '#CBD5E1' 
             ];
         })->values();
 
-        // ==========================================
-        // RÉPONSE AU FORMAT ATTENDU PAR REACT
-        // ==========================================
         return response()->json([
             'kpis' => [
                 'totalCollected' => (float) $totalCollected,
@@ -358,10 +420,8 @@ class CnpsController extends Controller
             'password' => 'required|string|min:6'
         ]);
 
-        // On récupère l'agent et on charge son compte utilisateur associé
         $agent = CnpsAgent::with('user')->findOrFail($id);
         
-        // On met à jour le mot de passe dans la table users
         $agent->user->update([
             'password' => Hash::make($request->password)
         ]);
@@ -387,14 +447,12 @@ class CnpsController extends Controller
     {
         $agent = CnpsAgent::findOrFail($id);
 
-        // Sécurité : on empêche l'utilisateur connecté de modifier son propre statut
         if ($agent->user_id === Auth::user()->id) {
             return response()->json([
                 'message' => 'Opération refusée : vous ne pouvez pas modifier vos propres droits d\'administration.'
             ], 403);
         }
 
-        // On inverse le statut (si true devient false, si false devient true)
         $agent->is_admin = !$agent->is_admin;
         $agent->save();
 
@@ -430,7 +488,6 @@ class CnpsController extends Controller
     {
         $query = Declaration::with(['company', 'bank']);
 
-        // --- MÊMES FILTRES QUE LA FONCTION INDEX ---
         $query->when($request->filled('status'), function ($q) use ($request) {
             $q->where('status', $request->status);
         });
@@ -449,16 +506,13 @@ class CnpsController extends Controller
                 $request->end_date . ' 23:59:59'
             ]);
         });
-        // ------------------------------------------
 
         $declarations = $query->orderBy('created_at', 'desc')->get();
 
-        // On calcule des totaux pour rendre le rapport professionnel
         $totalAmount = $declarations->sum('amount');
         $totalCount = $declarations->count();
         $dateGeneration = now()->format('d/m/Y à H:i');
 
-        // On charge la vue Blade avec les données
         $pdf = Pdf::loadView('declarations_pdf', compact(
             'declarations', 
             'totalAmount', 
@@ -469,7 +523,8 @@ class CnpsController extends Controller
 
         return $pdf->download('Reporting_CNPS_' . date('Y-m-d') . '.pdf');
     }
-#[OA\Post(
+
+    #[OA\Post(
         path: '/api/cnps/declarations/{id}/receipt',
         operationId: 'uploadReceipt',
         summary: 'Associer la quittance officielle (URL)',
@@ -496,14 +551,12 @@ class CnpsController extends Controller
     {
         $declaration = Declaration::findOrFail($id);
 
-        // SÉCURITÉ : On ne peut associer une quittance que si le paiement a été rapproché
         if ($declaration->status !== 'cnps_validated') {
             return response()->json([
                 'message' => 'Le paiement doit d\'abord être rapproché avant d\'y associer une quittance.'
             ], 403);
         }
 
-        // VALIDATION : L'URL est obligatoire et doit avoir un format valide
         $request->validate([
             'receipt_url' => 'required|url|max:2048'
         ], [
@@ -511,8 +564,6 @@ class CnpsController extends Controller
             'receipt_url.url' => 'Le lien fourni n\'est pas une URL valide.'
         ]);
 
-        // Enregistrement de l'URL dans la base de données
-        // (On conserve la colonne 'receipt_path' pour stocker cette URL)
         $declaration->receipt_path = $request->input('receipt_url');
         $declaration->save();
 

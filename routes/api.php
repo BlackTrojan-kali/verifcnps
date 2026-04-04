@@ -52,8 +52,8 @@ Route::middleware("auth:sanctum")->group(function(){
         Route::put('/counter-deposits/{id}', [BankController::class, 'updateCounterDeposit']); // POST avec _method=PUT pour le FormData
         
         // Recherche d'entreprise au guichet
-        Route::get('/companies/search', [BankController::class, 'searchCompanyByNiu']);
-
+// NOUVELLE LIGNE CORRIGÉE
+Route::get('/companies/search', [BankController::class, 'searchCompanyByNumeroEmployeur']);
         // ==========================================
         // Gestion des Agents (Guichetiers/Admins) de la Banque
         // ==========================================

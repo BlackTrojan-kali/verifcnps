@@ -65,7 +65,7 @@
             <tr>
                 <th width="3%">N°</th>
                 <th width="8%">Date</th>
-                <th width="12%">N° Assuré (NIU)</th>
+                <th width="12%">N° Employeur</th>
                 <th width="20%">Raison Sociale</th>
                 <th width="12%">Banque</th>
                 <th width="10%">Mode</th>

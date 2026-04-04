@@ -95,32 +95,33 @@ class DeclarationController extends Controller
 
         // --- TÉLÉCHARGEMENT ---
         // On donne un nom propre au fichier lors du téléchargement (ex: Preuve_VRT-12345.pdf)
-        $fileName = 'Preuve_' . $declaration->reference . '.pdf';
+        $fileName = 'Preuve_' . ($declaration->reference ?? $declaration->id) . '.pdf';
 
         return Storage::disk('public')->download($declaration->proof_path, $fileName);
     }
-#[OA\Get(
+
+    #[OA\Get(
         path: '/api/declarations/search/specific',
-        operationId: 'findDeclarationByNiuAmountPeriod',
+        operationId: 'findDeclarationByNumeroEmployeurAmountPeriod',
         summary: 'Rechercher la déclaration la plus récente',
-        description: 'Retrouve la déclaration la plus récente en croisant le NIU de l\'entreprise, le montant et la période.',
+        description: 'Retrouve la déclaration la plus récente en croisant le Numéro Employeur de l\'entreprise, le montant et la période.',
         tags: ['Déclarations (Général)'],
         security: [['bearerAuth' => []]]
     )]
-    #[OA\Parameter(name: 'niu', in: 'query', required: true, description: 'Numéro Identifiant Unique de l\'entreprise', schema: new OA\Schema(type: 'string'))]
+    #[OA\Parameter(name: 'numero_employeur', in: 'query', required: true, description: 'Numéro Employeur CNPS de l\'entreprise', schema: new OA\Schema(type: 'string'))]
     #[OA\Parameter(name: 'amount', in: 'query', required: true, description: 'Montant de la déclaration', schema: new OA\Schema(type: 'number'))]
     #[OA\Parameter(name: 'period', in: 'query', required: true, description: 'Période (ex: YYYY-MM-DD)', schema: new OA\Schema(type: 'string', format: 'date'))]
     #[OA\Response(response: 200, description: 'Déclaration trouvée avec succès')]
     #[OA\Response(response: 403, description: 'Accès non autorisé')]
     #[OA\Response(response: 404, description: 'Aucune déclaration correspondante')]
     /**
-     * Recherche la déclaration la plus récente par NIU, montant et période.
+     * Recherche la déclaration la plus récente par Numéro Employeur, montant et période.
      */
-    public function findByNiuAmountPeriod(Request $request)
+    public function findByNumeroEmployeurAmountPeriod(Request $request)
     {
         // 1. Validation des paramètres de recherche
         $request->validate([
-            'niu' => 'required|string',
+            'numero_employeur' => 'required|string',
             'amount' => 'required|numeric',
             'period' => 'required|date',
         ]);
@@ -128,23 +129,23 @@ class DeclarationController extends Controller
         // 2. Recherche croisée avec la relation Company (en prenant la plus récente)
         $declaration = Declaration::with(['company', 'bank'])
             ->whereHas('company', function ($query) use ($request) {
-                // On filtre sur la table "companies" via la relation
-                $query->where('niu', $request->niu);
+                // On filtre sur la table "companies" via la relation avec le nouveau nom de colonne
+                $query->where('numero_employeur', $request->numero_employeur);
             })
             ->where('amount', $request->amount)
             ->whereDate('period', $request->period)
-            ->latest() // <--- AJOUT CRUCIAL : Trie par created_at décroissant
+            ->latest() // <--- Trie par created_at décroissant
             ->first();
 
         // 3. Gestion du cas où rien n'est trouvé
         if (!$declaration) {
             return response()->json([
-                'message' => 'Aucune déclaration ne correspond à ces critères (NIU, montant, période).'
+                'message' => 'Aucune déclaration ne correspond à ces critères (Numéro Employeur, montant, période).'
             ], 404);
         }
 
         // 4. --- SÉCURITÉ ---
-        // On s'assure qu'une entreprise connectée ne cherche pas le NIU d'un concurrent
+        // On s'assure qu'une entreprise connectée ne cherche pas le Numéro Employeur d'un concurrent
         $user = Auth::user();
         if ($user->role === 'company' && $declaration->company_id !== $user->company->id) {
             return response()->json(['message' => 'Accès non autorisé à cette cotisation.'], 403);

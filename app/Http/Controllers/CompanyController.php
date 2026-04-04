@@ -10,13 +10,65 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Notification;
-use Illuminate\Support\Facades\Storage; // Indispensable pour supprimer l'ancien PDF lors d'une modification
+use Illuminate\Support\Facades\Storage; 
+use Illuminate\Support\Facades\Http; // <-- Indispensable pour l'API CNPS
+use Illuminate\Support\Facades\Log;  // <-- Pour logger les appels API
 
 // Importation indispensable pour Swagger
 use OpenApi\Attributes as OA;
 
 class CompanyController extends Controller
 {
+    /**
+     * ========================================================
+     * MÉTHODE PRIVÉE : SYNCHRONISATION AVEC L'API DE LA CNPS
+     * ========================================================
+     */
+    private function syncWithCnpsApi(Declaration $declaration)
+    {
+        $declaration->loadMissing('company');
+
+        // Codes de paiement (Mobile Money = 14, Orange Money = 15)
+        $modePaiementCode = '14'; 
+        $origine = 'MOMO_API';
+        if ($declaration->payment_mode === 'orange_money') {
+            $modePaiementCode = '15';
+            $origine = 'OMCAM';
+        }
+
+        // Construction du Payload (Tableau d'objets comme défini dans votre CURL)
+        $payload = [
+            [
+                "matricule" => $declaration->employer_number ?? $declaration->company->numero_employeur,
+                "id_paiement" => $declaration->payment_id ?? 'MOMO-' . $declaration->id . '-' . time(),
+                "montant" => (string) $declaration->amount, 
+                "date_paiement" => Carbon::parse($declaration->payment_date ?? now())->format('d-m-Y'),
+                "origine" => $declaration->payment_origin ?? $origine,
+                "mode_paiement" => $declaration->payment_mode_code ?? $modePaiementCode,
+                "type_assu" => $declaration->insurance_type ?? 'EM',
+                "telephone" => $declaration->payer_phone ?? $declaration->company->telephone ?? '000000000',
+                "localisation" => $declaration->location_code ?? '000-000-000',
+                "nomBank" => $declaration->bank_name ?? 'MOBILE MONEY',
+                "refTransactionBank" => $declaration->mobile_reference ?? $declaration->reference ?? 'NON_APPLICABLE'
+            ]
+        ];
+
+        try {
+            $response = Http::withHeaders([
+                'Content-Type' => 'application/json; charset=utf-8',
+                'User-Agent' => 'Danazpay'
+            ])->put("http://172.17.15.151:8080/energiZerServiceREST/paiement/transfert", $payload);
+
+            if ($response->failed()) {
+                Log::error("Échec de la synchronisation CNPS (MoMo) pour la déclaration ID {$declaration->id}. Statut: {$response->status()} - Réponse: {$response->body()}");
+            } else {
+                Log::info("Synchronisation CNPS (MoMo) réussie pour la déclaration ID {$declaration->id}.");
+            }
+        } catch (\Exception $e) {
+            Log::error("Erreur critique lors de l'appel API CNPS (MoMo) pour la déclaration ID {$declaration->id} : " . $e->getMessage());
+        }
+    }
+
     #[OA\Get(
         path: '/api/company/declarations',
         operationId: 'companyListDeclarations',
@@ -37,7 +89,7 @@ class CompanyController extends Controller
      */
     public function index(Request $request)
     {
-        $company = Auth::user()->company; // Correction: pas de parenthèses
+        $company = Auth::user()->company; 
 
         // On charge la relation "bank" pour afficher son nom côté React
         $query = Declaration::with('bank')->where("company_id", $company->id);
@@ -58,7 +110,6 @@ class CompanyController extends Controller
             $q->where("period", $request->period);
         });
 
-        // Correction de la logique des dates
         if ($request->filled('start_date') && $request->filled('end_date')) {
             $start_date = Carbon::parse($request->start_date)->startOfDay();
             $end_date = Carbon::parse($request->end_date)->endOfDay();
@@ -85,7 +136,7 @@ class CompanyController extends Controller
         content: new OA\MediaType(
             mediaType: 'multipart/form-data',
             schema: new OA\Schema(
-                required: ['reference', 'period', 'amount', 'payment_mode'],
+                required: ['period', 'amount', 'payment_mode'],
                 properties: [
                     new OA\Property(property: 'bank_id', type: 'integer', description: 'ID de la banque (requis sauf pour MoMo)'),
                     new OA\Property(property: 'reference', type: 'string', description: 'Référence du paiement'),
@@ -107,10 +158,13 @@ class CompanyController extends Controller
     {
         $request->validate([
             "bank_id" => "nullable|integer|exists:banks,id", 
+            "reference" => "nullable|string",
+            "mobile_reference" => "nullable|string",
             "period" => "required|date",
             "amount" => "required|numeric",
             "payment_mode" => "required|string|in:virement,especes,ordre_virement,mobile_money,orange_money",
             "status" => "nullable|string",
+            "proof_pdf" => "nullable|file|mimes:pdf|max:5096",
         ]);
 
         $company = Auth::user()->company; 
@@ -121,26 +175,32 @@ class CompanyController extends Controller
             $path = $request->file("proof_pdf")->store("proofs", "public");
         }
 
-        // Si MoMo, on passe directement à l'étape "bank_validated" car la banque n'intervient pas
         $isMobileMoney = in_array($request->payment_mode, ['mobile_money', 'orange_money']);
         $finalStatus = $isMobileMoney ? 'bank_validated' : ($request->status ?? "submited");
 
         $declaration = Declaration::create([
             "company_id" => $company->id,
-            "bank_id" => $request->bank_id,
+            "bank_id" => $isMobileMoney ? null : $request->bank_id, // Pas de banque pour MoMo
+            "reference" => $request->reference,
+            "mobile_reference" => $request->mobile_reference,
             "period" => $date,
             "amount" => $request->amount,
             "payment_mode" => $request->payment_mode, 
+            "payment_date" => $isMobileMoney ? now() : null, // On acte la date si c'est instantané
+            "proof_path" => $path,
             "status" => $finalStatus, 
         ]);
 
         // ========================================================
-        // GESTION INTELLIGENTE DES NOTIFICATIONS
+        // GESTION INTELLIGENTE DES NOTIFICATIONS & API CNPS
         // ========================================================
         $formattedAmount = number_format($declaration->amount, 0, ',', ' ') . " FCFA";
 
         if ($isMobileMoney) {
-            // C'est du MoMo : On alerte directement les agents CNPS
+            // 1. Appel API de la CNPS immédiatement
+            $this->syncWithCnpsApi($declaration);
+
+            // 2. Alerte aux agents CNPS
             $cnpsAgents = User::where('role', 'cnps')->get();
             Notification::send($cnpsAgents, new DeclarationStatusUpdated(
                 "Nouveau paiement Mobile Money de $formattedAmount reçu de {$company->raison_sociale}.", 
@@ -177,7 +237,7 @@ class CompanyController extends Controller
         content: new OA\MediaType(
             mediaType: 'multipart/form-data',
             schema: new OA\Schema(
-                required: ['reference', 'amount', 'payment_mode'],
+                required: ['amount', 'payment_mode'],
                 properties: [
                     new OA\Property(property: 'bank_id', type: 'integer'),
                     new OA\Property(property: 'reference', type: 'string'),
@@ -206,7 +266,7 @@ class CompanyController extends Controller
 
         $request->validate([
             "bank_id" => "nullable|integer|exists:banks,id",
-            "reference" => "required|string",
+            "reference" => "nullable|string",
             "mobile_reference" => "nullable|string",
             "amount" => "required|numeric",
             "payment_mode" => "required|string|in:virement,especes,ordre_virement,mobile_money,orange_money", 
@@ -224,22 +284,33 @@ class CompanyController extends Controller
         $finalStatus = $isMobileMoney ? 'bank_validated' : 'submited';
 
         $declaration->update([
-            "bank_id" => $request->bank_id,
+            "bank_id" => $isMobileMoney ? null : $request->bank_id,
             "reference" => $request->reference,
             "mobile_reference" => $request->mobile_reference,
             "amount" => $request->amount,
             "payment_mode" => $request->payment_mode,
+            "payment_date" => $isMobileMoney ? now() : $declaration->payment_date,
             "status" => $finalStatus 
         ]);
 
         // ========================================================
-        // ENVOYER À NOUVEAU LA NOTIFICATION APRÈS CORRECTION
+        // GESTION DES NOTIFICATIONS ET API APRÈS CORRECTION
         // ========================================================
-        if (!$isMobileMoney && $request->bank_id) {
+        if ($isMobileMoney) {
+            // Si la correction transforme le paiement en MoMo, on le pousse à la CNPS
+            $this->syncWithCnpsApi($declaration);
+            
+            $cnpsAgents = User::where('role', 'cnps')->get();
+            Notification::send($cnpsAgents, new DeclarationStatusUpdated(
+                "L'entreprise {$company->raison_sociale} a corrigé sa déclaration et payé par Mobile Money.", 
+                $declaration
+            ));
+        } elseif ($request->bank_id) {
+            // Renvoi de la notification à la banque
             $bank = Bank::with('user')->find($request->bank_id);
             if ($bank && $bank->user) {
                 $bank->user->notify(new DeclarationStatusUpdated(
-                    "L'entreprise {$company->raison_sociale} a corrigé et renvoyé sa preuve de virement.", 
+                    "L'entreprise {$company->raison_sociale} a corrigé et renvoyé sa preuve de paiement.", 
                     $declaration
                 ));
             }
@@ -291,7 +362,7 @@ class CompanyController extends Controller
         path: '/api/company/declarations/{id}/download-receipt',
         operationId: 'downloadReceipt',
         summary: 'Télécharger la quittance officielle de la CNPS',
-        description: 'Télécharge le fichier PDF de la quittance si elle a été générée.',
+        description: 'Télécharge le fichier PDF de la quittance depuis le serveur FTP de la CNPS.',
         tags: ['Espace Entreprise'],
         security: [['bearerAuth' => []]]
     )]
@@ -300,7 +371,7 @@ class CompanyController extends Controller
     #[OA\Response(response: 403, description: 'Accès non autorisé')]
     #[OA\Response(response: 404, description: 'Quittance introuvable')]
     /**
-     * Endpoint général pour télécharger la quittance officielle de la CNPS (PDF)
+     * 5. Endpoint pour télécharger la quittance officielle de la CNPS (Proxy FTP)
      */
     public function downloadReceipt($id)
     {
@@ -316,18 +387,30 @@ class CompanyController extends Controller
             return response()->json(['message' => 'Accès non autorisé à ce document.'], 403);
         }
 
-        // --- VÉRIFICATION DU FICHIER DE QUITTANCE ---
+        // --- VÉRIFICATION DU CHEMIN DE LA QUITTANCE (URL FTP) ---
         if (empty($declaration->receipt_path)) {
             return response()->json(['message' => 'La quittance officielle n\'a pas encore été générée par la CNPS pour cette déclaration.'], 404);
         }
 
-        if (!Storage::disk('public')->exists($declaration->receipt_path)) {
-            return response()->json(['message' => 'Le fichier physique de la quittance est introuvable sur le serveur.'], 404);
+        // Le chemin est une URL externe (ex: ftp://...), on lit directement le flux
+        // (Attention: il faut que 'allow_url_fopen' soit activé sur votre serveur PHP)
+        try {
+            $fileContent = @file_get_contents($declaration->receipt_path);
+
+            if ($fileContent === false) {
+                return response()->json(['message' => 'Impossible de récupérer la quittance depuis le serveur distant de la CNPS.'], 404);
+            }
+
+            $fileName = 'Quittance_CNPS_' . ($declaration->reference ?? $declaration->id) . '.pdf';
+
+            // On retourne le fichier directement dans la réponse HTTP comme un téléchargement normal
+            return response($fileContent)
+                ->header('Content-Type', 'application/pdf')
+                ->header('Content-Disposition', 'attachment; filename="' . $fileName . '"');
+
+        } catch (\Exception $e) {
+            Log::error("Erreur de téléchargement FTP pour la quittance ID {$declaration->id} : " . $e->getMessage());
+            return response()->json(['message' => 'Une erreur est survenue lors du contact avec le serveur d\'archives de la CNPS.'], 500);
         }
-
-        // --- TÉLÉCHARGEMENT ---
-        $fileName = 'Quittance_CNPS_' . $declaration->reference . '.pdf';
-
-        return Storage::disk('public')->download($declaration->receipt_path, $fileName);
     }
 }

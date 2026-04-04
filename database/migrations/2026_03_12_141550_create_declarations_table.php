@@ -14,35 +14,51 @@ return new class extends Migration
         Schema::create('declarations', function (Blueprint $table) {
             $table->id();
             
-            // 1. Protection des données financières (restrict au lieu de cascade)
+            // --- Relations ---
             $table->foreignId("company_id")->constrained()->onDelete("restrict");
-            // 2. Rendu nullable car un paiement MoMo ou une déclaration non finalisée n'a pas de banque
             $table->foreignId("bank_id")->nullable()->constrained()->onDelete("restrict");
             
-            $table->string("reference")->unique()->nullable();
+            // --- Références de transaction ---
+            $table->string("reference")->unique()->nullable(); // Référence interne
+            $table->string("payment_id")->unique()->nullable(); // <-- Pour "id_paiement" ("TEST111241")
             $table->string("order_reference")->unique()->nullable();
+            $table->string("bank_transaction_ref")->nullable(); // <-- Pour "refTransactionBank"
             $table->string("mobile_reference")->nullable();
-            $table->date("period");
-            $table->decimal("amount", 15, 2);
-             
-            // 3. Rendu nullable car l'API CNPS l'ignore au moment de l'initialisation
-            $table->enum("payment_mode", ['virement', 'especes', 'ordre_virement', 'mobile_money', "orange_money"])->nullable();
             
-            // 4. L'AJOUT CRITIQUE : Le chemin du fichier PDF uploadé par l'entreprise/banque (Preuve)
-            $table->string("proof_path")->nullable();
-
-            // ==========================================
-            // NOUVEAU : La quittance délivrée par la CNPS
-            // ==========================================
-            $table->string("receipt_path")->nullable();
+            // --- Informations de paiement ---
+            $table->date("period"); // Période de la déclaration (mois/trimestre)
+            $table->date("payment_date")->nullable(); // <-- Pour "date_paiement" ("24-04-2018")
+            $table->decimal("amount", 15, 2); // <-- Pour "montant" ("200000")
+            
+            // --- Mode et Origine ---
+            $table->string("payment_mode_code")->nullable(); // <-- Pour "mode_paiement" ("14")
+            $table->enum("payment_mode", ['virement', 'especes', 'ordre_virement', 'mobile_money', 'orange_money'])->nullable();
+            $table->string("payment_origin")->nullable(); // <-- Pour "origine" ("OMCAM")
+            
+            // --- Méta-données API CNPS ---
+            $table->string("employer_number")->nullable(); // <-- Pour "matricule" ("384-0000036-000-X")
+            $table->string("insurance_type")->nullable(); // <-- Pour "type_assu" ("EM")
+            $table->string("location_code")->nullable(); // <-- Pour "localisation" ("124-125-141")
+            
+            // --- Informations du payeur et de la banque ---
+            $table->string("payer_phone")->nullable(); // <-- Pour "telephone" ("670322140")
+            $table->string("bank_name")->nullable(); // <-- Pour "nomBank" ("AFRILAND FIRST BANK")
             $table->string("account_number")->nullable();
-            // 5. Ajout de l'état initial ('initiated') et de la valeur par défaut
-            $table->enum("status", ["submited", "bank_validated", "cnps_validated", "rejected"])->default("initiated"); 
             
+            // --- Fichiers ---
+            $table->string("proof_path")->nullable();
+            $table->string("receipt_path")->nullable();
+            
+            // --- Statut et validation ---
+            // "initiated" a été ajouté dans les options de l'enum
+            $table->enum("status", ["initiated", "submited", "bank_validated", "cnps_validated", "rejected"])->default("initiated"); 
             $table->string("comment_reject")->nullable();  
+            
             $table->timestamps();
             
-            $table->index("reference")->nullable();
+            // --- Index pour les performances ---
+            $table->index("reference"); 
+            $table->index("payment_id");
             $table->index("status");
         });
     }

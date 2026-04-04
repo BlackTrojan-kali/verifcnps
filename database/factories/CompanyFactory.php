@@ -22,7 +22,7 @@ class CompanyFactory extends Factory
             //
             // Crée automatiquement un User lié avec le rôle 'entreprise'
             'user_id' => User::factory()->state(['role' => 'company']),
-            'niu' => 'M' . $this->faker->unique()->randomNumber(9, true),
+            'numero_employeur' => 'M' . $this->faker->unique()->randomNumber(9, true),
             'raison_sociale' => $this->faker->company(),
             'telephone' => '+237 6' . $this->faker->randomNumber(8, true),
             'address' => $this->faker->city() . ', Cameroun',
